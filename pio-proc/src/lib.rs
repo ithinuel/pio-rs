@@ -1,3 +1,8 @@
+// - Concatenates all source lines into a single string.
+// - Pass it to syn's parser to get each token associated with rust's internal Span.
+// - Pass these lex'ed token into lalrpop
+// - Generate fancy diagnostic messages
+
 use lalrpop_util::ParseError;
 use proc_macro::TokenStream;
 use proc_macro2::Span;
