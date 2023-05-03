@@ -13,6 +13,8 @@ mod parser {
     #![allow(clippy::all)]
     include!(concat!(env!("OUT_DIR"), "/pio.rs"));
 }
+#[path ="parser.rs"]
+pub mod nom_parser;
 
 #[derive(Debug)]
 pub(crate) enum Value<'input> {

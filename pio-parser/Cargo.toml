@@ -2,8 +2,7 @@
 name = "pio-parser"
 version = "0.2.2"
 authors = ["snek", "The rp-rs Developers"]
-edition = "2018"
-resolver= "2"
+edition = "2021"
 description = "Raspberry Silicon PIO asm parser"
 license = "MIT"
 repository = "https://github.com/rp-rs/pio-rs"
@@ -11,6 +10,7 @@ repository = "https://github.com/rp-rs/pio-rs"
 [dependencies]
 lalrpop-util = { version = "0.19.6", features = ["lexer"] }
 pio = { path = "..", version = "0.2.1" }
+nom = "7.1.3"
 
 [build-dependencies]
 lalrpop = "0.19.6"
