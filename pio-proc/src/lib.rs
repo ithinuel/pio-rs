@@ -1,7 +1,11 @@
-// - Concatenates all source lines into a single string.
-// - Pass it to syn's parser to get each token associated with rust's internal Span.
-// - Pass these lex'ed token into lalrpop
-// - Generate fancy diagnostic messages
+// - Parse code, gather defines & labels
+// - Reify operands (resolve labels & defines to actual values)
+// - On error, Generate fancy diagnostic messages
+//   - [ariadne](https://crates.io/crates/ariadne)
+//   - [codemap-diagnostic](https://crates.io/crates/codemap-diagnostic)
+//   - [codespan-reporting](https://crates.io/crates/codespan-reporting)
+//   - [annotate-snippets](https://crates.io/crates/annotate-snippets)
+//   - [language-reporting](https://crates.io/crates/language-reporting)
 
 use lalrpop_util::ParseError;
 use proc_macro::TokenStream;
