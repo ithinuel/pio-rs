@@ -152,9 +152,9 @@ impl<'i> Operands<'i> {
     pub fn reify(
         &self,
         state: &SymbolRegister<'i>,
-    ) -> Result<pio::InstructionOperands, ReifyError<'i>> {
+    ) -> Result<pio::Operation, ReifyError<'i>> {
         Ok(match self {
-            Operands::JMP { condition, address } => pio::InstructionOperands::JMP {
+            Operands::JMP { condition, address } => pio::Operation::JMP {
                 condition: *condition,
                 address: address.reify(state)?.try_into()?,
             },
@@ -163,28 +163,28 @@ impl<'i> Operands<'i> {
                 source,
                 index,
                 relative,
-            } => pio::InstructionOperands::WAIT {
+            } => pio::Operation::WAIT {
                 polarity: polarity.reify(state)?.try_into()?,
                 source: *source,
                 index: index.reify(state)?.try_into()?,
                 relative: *relative,
             },
-            Operands::IN { source, bit_count } => pio::InstructionOperands::IN {
+            Operands::IN { source, bit_count } => pio::Operation::IN {
                 source: *source,
                 bit_count: bit_count.reify(state)?.try_into()?,
             },
             Operands::OUT {
                 destination,
                 bit_count,
-            } => pio::InstructionOperands::OUT {
+            } => pio::Operation::OUT {
                 destination: *destination,
                 bit_count: bit_count.reify(state)?.try_into()?,
             },
-            Operands::PUSH { if_full, block } => pio::InstructionOperands::PUSH {
+            Operands::PUSH { if_full, block } => pio::Operation::PUSH {
                 if_full: *if_full,
                 block: *block,
             },
-            Operands::PULL { if_empty, block } => pio::InstructionOperands::PULL {
+            Operands::PULL { if_empty, block } => pio::Operation::PULL {
                 if_empty: *if_empty,
                 block: *block,
             },
@@ -192,7 +192,7 @@ impl<'i> Operands<'i> {
                 destination,
                 op,
                 source,
-            } => pio::InstructionOperands::MOV {
+            } => pio::Operation::MOV {
                 destination: *destination,
                 op: *op,
                 source: *source,
@@ -202,13 +202,13 @@ impl<'i> Operands<'i> {
                 wait,
                 index,
                 relative,
-            } => pio::InstructionOperands::IRQ {
+            } => pio::Operation::IRQ {
                 clear: *clear,
                 wait: *wait,
                 index: index.reify(state)?.try_into()?,
                 relative: *relative,
             },
-            Operands::SET { destination, data } => pio::InstructionOperands::SET {
+            Operands::SET { destination, data } => pio::Operation::SET {
                 destination: *destination,
                 data: data.reify(state)?.try_into()?,
             },

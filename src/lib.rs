@@ -152,7 +152,7 @@ pub enum SetDestination {
 }
 
 #[derive(Debug)]
-pub enum InstructionOperands {
+pub enum Operation {
     JMP {
         condition: JmpCondition,
         address: u8,
@@ -198,25 +198,25 @@ pub enum InstructionOperands {
     },
 }
 
-impl InstructionOperands {
+impl Operation {
     const fn discrim(&self) -> u16 {
         match self {
-            InstructionOperands::JMP { .. } => 0b000,
-            InstructionOperands::WAIT { .. } => 0b001,
-            InstructionOperands::IN { .. } => 0b010,
-            InstructionOperands::OUT { .. } => 0b011,
-            InstructionOperands::PUSH { .. } => 0b100,
-            InstructionOperands::PULL { .. } => 0b100,
-            InstructionOperands::MOV { .. } => 0b101,
-            InstructionOperands::IRQ { .. } => 0b110,
-            InstructionOperands::SET { .. } => 0b111,
+            Operation::JMP { .. } => 0b000,
+            Operation::WAIT { .. } => 0b001,
+            Operation::IN { .. } => 0b010,
+            Operation::OUT { .. } => 0b011,
+            Operation::PUSH { .. } => 0b100,
+            Operation::PULL { .. } => 0b100,
+            Operation::MOV { .. } => 0b101,
+            Operation::IRQ { .. } => 0b110,
+            Operation::SET { .. } => 0b111,
         }
     }
 
     const fn operands(&self) -> (u8, u8) {
         match self {
-            InstructionOperands::JMP { condition, address } => (*condition as u8, *address),
-            InstructionOperands::WAIT {
+            Operation::JMP { condition, address } => (*condition as u8, *address),
+            Operation::WAIT {
                 polarity,
                 source,
                 index,
@@ -233,23 +233,23 @@ impl InstructionOperands {
                     *index | (if *relative { 0b10000 } else { 0 }),
                 )
             }
-            InstructionOperands::IN { source, bit_count } => (*source as u8, *bit_count),
-            InstructionOperands::OUT {
+            Operation::IN { source, bit_count } => (*source as u8, *bit_count),
+            Operation::OUT {
                 destination,
                 bit_count,
             } => (*destination as u8, *bit_count & 0b11111),
-            InstructionOperands::PUSH { if_full, block } => {
+            Operation::PUSH { if_full, block } => {
                 ((*if_full as u8) << 1 | (*block as u8), 0)
             }
-            InstructionOperands::PULL { if_empty, block } => {
+            Operation::PULL { if_empty, block } => {
                 (1 << 2 | (*if_empty as u8) << 1 | (*block as u8), 0)
             }
-            InstructionOperands::MOV {
+            Operation::MOV {
                 destination,
                 op,
                 source,
             } => (*destination as u8, (*op as u8) << 3 | (*source as u8)),
-            InstructionOperands::IRQ {
+            Operation::IRQ {
                 clear,
                 wait,
                 index,
@@ -263,7 +263,7 @@ impl InstructionOperands {
                     *index | (if *relative { 0b10000 } else { 0 }),
                 )
             }
-            InstructionOperands::SET { destination, data } => (*destination as u8, *data),
+            Operation::SET { destination, data } => (*destination as u8, *data),
         }
     }
 
@@ -287,14 +287,14 @@ impl InstructionOperands {
         match discrim {
             0b000 => JmpCondition::try_from(o0)
                 .ok()
-                .map(|condition| InstructionOperands::JMP {
+                .map(|condition| Operation::JMP {
                     condition,
                     address: o1,
                 }),
             0b001 => {
                 WaitSource::try_from(o0 & 0b011)
                     .ok()
-                    .map(|source| InstructionOperands::WAIT {
+                    .map(|source| Operation::WAIT {
                         polarity: o0 >> 2,
                         source,
                         index: if source == WaitSource::IRQ {
@@ -307,14 +307,14 @@ impl InstructionOperands {
             }
             0b010 => InSource::try_from(o0)
                 .ok()
-                .map(|source| InstructionOperands::IN {
+                .map(|source| Operation::IN {
                     source,
                     bit_count: o1,
                 }),
             0b011 => {
                 OutDestination::try_from(o0)
                     .ok()
-                    .map(|destination| InstructionOperands::OUT {
+                    .map(|destination| Operation::OUT {
                         destination,
                         bit_count: o1,
                     })
@@ -325,12 +325,12 @@ impl InstructionOperands {
                 if o1 != 0 {
                     None
                 } else if o0 & 0b100 == 0 {
-                    Some(InstructionOperands::PUSH {
+                    Some(Operation::PUSH {
                         if_full: if_flag,
                         block,
                     })
                 } else {
-                    Some(InstructionOperands::PULL {
+                    Some(Operation::PULL {
                         if_empty: if_flag,
                         block,
                     })
@@ -341,7 +341,7 @@ impl InstructionOperands {
                 MovOperation::try_from((o1 >> 3) & 0b11).ok(),
                 MovSource::try_from(o1 & 0b111).ok(),
             ) {
-                (Some(destination), Some(op), Some(source)) => Some(InstructionOperands::MOV {
+                (Some(destination), Some(op), Some(source)) => Some(Operation::MOV {
                     destination,
                     op,
                     source,
@@ -350,7 +350,7 @@ impl InstructionOperands {
             },
             0b110 => {
                 if o0 & 0b100 == 0 {
-                    Some(InstructionOperands::IRQ {
+                    Some(Operation::IRQ {
                         clear: o0 & 0b010 != 0,
                         wait: o0 & 0b001 != 0,
                         index: o1 & 0b01111,
@@ -363,7 +363,7 @@ impl InstructionOperands {
             0b111 => {
                 SetDestination::try_from(o0)
                     .ok()
-                    .map(|destination| InstructionOperands::SET {
+                    .map(|destination| Operation::SET {
                         destination,
                         data: o1,
                     })
@@ -376,7 +376,7 @@ impl InstructionOperands {
 /// A PIO instruction.
 #[derive(Debug)]
 pub struct Instruction {
-    pub operands: InstructionOperands,
+    pub operands: Operation,
     pub delay: u8,
     pub side_set: Option<u8>,
 }
@@ -417,7 +417,7 @@ impl Instruction {
 
     /// Decode a single instruction.
     pub fn decode(instruction: u16, side_set: SideSet) -> Option<Instruction> {
-        InstructionOperands::decode(instruction).map(|operands| {
+        Operation::decode(instruction).map(|operands| {
             let data = ((instruction >> 8) & 0b11111) as u8;
 
             let delay = data & ((1 << (5 - side_set.bits)) - 1);
@@ -609,7 +609,7 @@ impl<const PROGRAM_SIZE: usize> Assembler<PROGRAM_SIZE> {
                 while patch != core::u8::MAX {
                     // SAFETY: patch points to the next instruction to patch
                     let instr = unsafe { self.instructions.get_unchecked_mut(patch as usize) };
-                    if let InstructionOperands::JMP { address, .. } = &mut instr.operands {
+                    if let Operation::JMP { address, .. } = &mut instr.operands {
                         patch = *address;
                         *address = resolved_address;
                     } else {
@@ -660,7 +660,7 @@ impl<const PROGRAM_SIZE: usize> Assembler<PROGRAM_SIZE> {
                 }
                 LabelState::Bound(a) => a,
             };
-            InstructionOperands::JMP {
+            Operation::JMP {
                 condition,
                 address,
             }
@@ -671,7 +671,7 @@ impl<const PROGRAM_SIZE: usize> Assembler<PROGRAM_SIZE> {
         /// Emit a `wait` instruction with `polarity` from `source` with `index` which may be
         /// `relative`.
         wait(self, polarity: u8, source: WaitSource, index: u8, relative: bool) {
-            InstructionOperands::WAIT {
+            Operation::WAIT {
                 polarity,
                 source,
                 index,
@@ -683,14 +683,14 @@ impl<const PROGRAM_SIZE: usize> Assembler<PROGRAM_SIZE> {
     instr!(
         /// Emit an `in` instruction from `source` with `bit_count`.
         r#in(self, source: InSource, bit_count: u8) {
-            InstructionOperands::IN { source, bit_count }
+            Operation::IN { source, bit_count }
         }
     );
 
     instr!(
         /// Emit an `out` instruction to `source` with `bit_count`.
         out(self, destination: OutDestination, bit_count: u8) {
-            InstructionOperands::OUT {
+            Operation::OUT {
                 destination,
                 bit_count,
             }
@@ -700,7 +700,7 @@ impl<const PROGRAM_SIZE: usize> Assembler<PROGRAM_SIZE> {
     instr!(
         /// Emit a `push` instruction with `if_full` and `block`.
         push(self, if_full: bool, block: bool) {
-            InstructionOperands::PUSH {
+            Operation::PUSH {
                 if_full,
                 block,
             }
@@ -710,7 +710,7 @@ impl<const PROGRAM_SIZE: usize> Assembler<PROGRAM_SIZE> {
     instr!(
         /// Emit a `pull` instruction with `if_empty` and `block`.
         pull(self, if_empty: bool, block: bool) {
-            InstructionOperands::PULL {
+            Operation::PULL {
                 if_empty,
                 block,
             }
@@ -720,7 +720,7 @@ impl<const PROGRAM_SIZE: usize> Assembler<PROGRAM_SIZE> {
     instr!(
         /// Emit a `mov` instruction to `destination` using `op` from `source`.
         mov(self, destination: MovDestination, op: MovOperation, source: MovSource) {
-            InstructionOperands::MOV {
+            Operation::MOV {
                 destination,
                 op,
                 source,
@@ -731,7 +731,7 @@ impl<const PROGRAM_SIZE: usize> Assembler<PROGRAM_SIZE> {
     instr!(
         /// Emit an `irq` instruction using `clear` and `wait` with `index` which may be `relative`.
         irq(self, clear: bool, wait: bool, index: u8, relative: bool) {
-            InstructionOperands::IRQ {
+            Operation::IRQ {
                 clear,
                 wait,
                 index,
@@ -743,7 +743,7 @@ impl<const PROGRAM_SIZE: usize> Assembler<PROGRAM_SIZE> {
     instr!(
         /// Emit a `set` instruction
         set(self, destination: SetDestination, data: u8) {
-            InstructionOperands::SET {
+            Operation::SET {
                 destination,
                 data,
             }
@@ -754,7 +754,7 @@ impl<const PROGRAM_SIZE: usize> Assembler<PROGRAM_SIZE> {
         /// Emit a `mov` instruction from Y to Y without operation effectively acting as a `nop`
         /// instruction.
         nop(self) {
-            InstructionOperands::MOV {
+            Operation::MOV {
                 destination: MovDestination::Y,
                 op: MovOperation::None,
                 source: MovSource::Y
@@ -823,179 +823,6 @@ pub struct ProgramWithDefines<PublicDefines, const PROGRAM_SIZE: usize> {
     pub public_defines: PublicDefines,
 }
 
-#[test]
-fn test_jump_1() {
-    let mut a = Assembler::<32>::new();
-
-    let mut l = a.label();
-    a.set(SetDestination::X, 0);
-    a.bind(&mut l);
-    a.set(SetDestination::X, 1);
-    a.jmp(JmpCondition::Always, &mut l);
-
-    assert_eq!(
-        a.assemble().as_slice(),
-        &[
-            0b111_00000_001_00000, // SET X 0
-            // L:
-            0b111_00000_001_00001, // SET X 1
-            0b000_00000_000_00001, // JMP L
-        ]
-    );
-}
-
-#[test]
-fn test_jump_2() {
-    let mut a = Assembler::<32>::new();
-
-    let mut top = a.label();
-    let mut bottom = a.label();
-    a.bind(&mut top);
-    a.set(SetDestination::Y, 0);
-    a.jmp(JmpCondition::YIsZero, &mut bottom);
-    a.jmp(JmpCondition::Always, &mut top);
-    a.bind(&mut bottom);
-    a.set(SetDestination::Y, 1);
-
-    assert_eq!(
-        a.assemble().as_slice(),
-        &[
-            // TOP:
-            0b111_00000_010_00000, // SET Y 0
-            0b000_00000_011_00011, // JMP YIsZero BOTTOM
-            0b000_00000_000_00000, // JMP Always TOP
-            // BOTTOM:
-            0b111_00000_010_00001, // SET Y 1
-        ]
-    );
-}
-
-#[test]
-fn test_assemble_with_wrap() {
-    let mut a = Assembler::<32>::new();
-
-    let mut source = a.label();
-    let mut target = a.label();
-
-    a.set(SetDestination::PINDIRS, 0);
-    a.bind(&mut target);
-    a.r#in(InSource::NULL, 1);
-    a.push(false, false);
-    a.bind(&mut source);
-    a.jmp(JmpCondition::Always, &mut target);
-
-    assert_eq!(
-        a.assemble_with_wrap(source, target).wrap,
-        Wrap {
-            source: 2,
-            target: 1,
-        }
-    );
-}
-
-#[test]
-fn test_assemble_program_default_wrap() {
-    let mut a = Assembler::<32>::new();
-
-    a.set(SetDestination::PINDIRS, 0);
-    a.r#in(InSource::NULL, 1);
-    a.push(false, false);
-
-    assert_eq!(
-        a.assemble_program().wrap,
-        Wrap {
-            source: 2,
-            target: 0,
-        }
-    );
-}
-
-macro_rules! instr_test {
-    ($name:ident ( $( $v:expr ),* ) , $expected:expr, $side_set:expr) => {
-        paste::paste! {
-            #[test]
-            fn [< test _ $name _ $expected >]() {
-                let expected = $expected;
-
-                let mut a = Assembler::<32>::new_with_side_set($side_set);
-                a.$name(
-                    $( $v ),*
-                );
-                let instr = a.assemble()[0];
-                if instr != expected {
-                    panic!("assertion failure: (left == right)\nleft:  {:#016b}\nright: {:#016b}", instr, expected);
-                }
-
-                let decoded = Instruction::decode(instr, $side_set).unwrap();
-                let encoded = decoded.encode($side_set);
-                if encoded != expected {
-                    panic!("assertion failure: (left == right)\nleft:  {:#016b}\nright: {:#016b}", encoded, expected);
-                }
-            }
-        }
-    };
-
-    ($name:ident ( $( $v:expr ),* ) , $b:expr) => {
-        instr_test!( $name ( $( $v ),* ), $b, SideSet::new(false, 0, false) );
-    };
-}
-
-instr_test!(wait(0, WaitSource::IRQ, 2, false), 0b001_00000_010_00010);
-instr_test!(wait(1, WaitSource::IRQ, 7, false), 0b001_00000_110_00111);
-instr_test!(wait(1, WaitSource::GPIO, 16, false), 0b001_00000_100_10000);
-instr_test!(
-    wait_with_delay(0, WaitSource::IRQ, 2, false, 30),
-    0b001_11110_010_00010
-);
-instr_test!(
-    wait_with_side_set(0, WaitSource::IRQ, 2, false, 0b10101),
-    0b001_10101_010_00010,
-    SideSet::new(false, 5, false)
-);
-instr_test!(wait(0, WaitSource::IRQ, 2, true), 0b001_00000_010_10010);
-
-#[test]
-#[should_panic]
-fn test_wait_relative_not_used_on_irq() {
-    let mut a = Assembler::<32>::new();
-    a.wait(0, WaitSource::PIN, 10, true);
-    a.assemble_program();
-}
-
-instr_test!(r#in(InSource::Y, 10), 0b010_00000_010_01010);
-
-instr_test!(out(OutDestination::Y, 10), 0b011_00000_010_01010);
-
-instr_test!(push(true, false), 0b100_00000_010_00000);
-instr_test!(push(false, true), 0b100_00000_001_00000);
-
-instr_test!(pull(true, false), 0b100_00000_110_00000);
-instr_test!(pull(false, true), 0b100_00000_101_00000);
-
-instr_test!(
-    mov(
-        MovDestination::Y,
-        MovOperation::BitReverse,
-        MovSource::STATUS
-    ),
-    0b101_00000_010_10101
-);
-
-instr_test!(irq(true, false, 0b11, false), 0b110_00000_010_00011);
-instr_test!(irq(false, true, 0b111, true), 0b110_00000_001_10111);
-
-instr_test!(set(SetDestination::Y, 10), 0b111_00000_010_01010);
-
-/// This block ensures that README.md is checked when `cargo test` is run.
-#[cfg(doctest)]
-mod test_readme {
-    macro_rules! external_doc_test {
-        ($x:expr) => {
-            #[doc = $x]
-            extern "C" {}
-        };
-    }
-    external_doc_test!(include_str!("../README.md"));
-}
-
+#[cfg(test)]
+mod tests;
 // End of file
