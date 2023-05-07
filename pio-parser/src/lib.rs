@@ -4,13 +4,7 @@
 #![deny(clippy::cast_sign_loss)]
 #![deny(clippy::cast_possible_truncation)]
 
-//mod parser {
-//    #![allow(clippy::all)]
-//    include!(concat!(env!("OUT_DIR"), "/pio.rs"));
-//}
-#[path = "parser.rs"]
-pub mod nom_parser;
-
+mod parser;
 mod ast;
 
 //#[derive(Debug, Default)]
