@@ -2,17 +2,20 @@ use std::collections::HashMap;
 
 use crate::parser::Span;
 
+#[derive(Debug)]
 pub struct Symbol<'i> {
-    public: bool,
-    span: Span<'i>
+    pub(crate) public: bool,
+    pub(crate) span: Span<'i>
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum Value<'i> {
     // the datasheet does not define bounds for the integers. The reference impl uses `int`.
-    Integer(isize, Span<'i>),
+    Integer(u64, Span<'i>),
     Identifier(Span<'i>)
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum Expression<'i> {
     Value(Value<'i>),
     Plus(Box<Expression<'i>>, Box<Expression<'i>>),

@@ -7,6 +7,21 @@
 mod parser;
 mod ast;
 
+#[derive(Debug, thiserror::Error)]
+pub enum ParseError {
+    #[error("Index out of bound")]
+    IntegerOutOfBound
+}
+impl<I> nom::error::ParseError<I> for ParseError {
+    fn from_error_kind(input: I, kind: nom::error::ErrorKind) -> Self {
+        todo!()
+    }
+
+    fn append(input: I, kind: nom::error::ErrorKind, other: Self) -> Self {
+        todo!()
+    }
+}
+
 //#[derive(Debug, Default)]
 //struct FileState {
 //    defines: HashMap<String, (bool, i32)>,
