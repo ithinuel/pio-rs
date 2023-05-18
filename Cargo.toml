@@ -2,8 +2,7 @@
 name = "pio"
 version = "0.2.1"
 authors = ["snek", "The rp-rs developers"]
-edition = "2018"
-resolver = "2"
+edition = "2021"
 license = "MIT"
 description = "Support for the Raspberry Silicon RP2040's PIO State Machines."
 repository = "https://github.com/rp-rs/pio-rs"
