@@ -1,11 +1,8 @@
-#[macro_use]
-extern crate pretty_assertions;
-
 use std::{collections::HashMap, fs, path::PathBuf};
 
-#[test_generator::test_resources("tests/pico-examples/*.pio")]
+#[test_generator::test_resources("pio-parser/tests/pico-examples/*.pio")]
 fn test(test: &str) {
-    let path = PathBuf::from(test);
+    let path = PathBuf::from("../").join(test);
     let program_source = fs::read_to_string(&path).unwrap();
     let programs =
         pio_parser::Parser::<{ pio::RP2040_MAX_PROGRAM_SIZE }>::parse_file(&program_source)

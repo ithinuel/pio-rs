@@ -72,7 +72,7 @@ Or you can assemble a stand-alone PIO file from disk:
 use pio_proc::pio_file;
 
 let program_with_defines = pio_proc::pio_file!(
-    "./tests/test.pio",
+    "pio-proc/tests/test.pio",
     select_program("test"), // Optional if only one program in the file
     options(max_program_size = 32) // Optional, defaults to 32
 );
