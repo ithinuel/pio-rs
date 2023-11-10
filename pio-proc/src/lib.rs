@@ -272,7 +272,7 @@ pub fn pio_file(item: TokenStream) -> TokenStream {
 pub fn pio_asm(item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(item as PioAsmMacroArgs);
 
-    let parsed_program = pio_parser::Parser::<{ MAX_PROGRAM_SIZE }>::parse_program(&args.program);
+    let parsed_program = pio_parser::parse(&args.program);
 
     let program = match &parsed_program {
         Ok(program) => program,
@@ -283,7 +283,7 @@ pub fn pio_asm(item: TokenStream) -> TokenStream {
 }
 
 fn to_codegen(
-    program: &pio::ProgramWithDefines<HashMap<String, i32>, { MAX_PROGRAM_SIZE }>,
+    program: &pio::ProgramWithDefines<HashMap<String, i32>, Vec<u16>>,
     max_program_size: Expr,
 ) -> proc_macro2::TokenStream {
     let pio::ProgramWithDefines {

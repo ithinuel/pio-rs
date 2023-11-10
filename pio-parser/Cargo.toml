@@ -9,7 +9,7 @@ repository = "https://github.com/rp-rs/pio-rs"
 
 [dependencies]
 lalrpop-util = { version = "0.20.0", default-features = false, features = ["unicode"] }
-pio = { path = "..", version = "0.3" }
+pio = { path = "../pio", version = "0.3" }
 logos = "0.13.0"
 thiserror = "1.0.50"
 itertools = "0.10.5"

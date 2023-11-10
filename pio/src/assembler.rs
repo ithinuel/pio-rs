@@ -343,7 +343,7 @@ fn test_jump_1() {
 
     let mut l = a.label();
     a.set(SetDestination::X, 0);
-    a.bind(&mut l);
+    a.bind(&mut l).expect("Failed to bind");
     a.set(SetDestination::X, 1);
     a.jmp(JmpCondition::Always, &mut l);
 
@@ -364,11 +364,11 @@ fn test_jump_2() {
 
     let mut top = a.label();
     let mut bottom = a.label();
-    a.bind(&mut top);
+    a.bind(&mut top).expect("Failed to bind");
     a.set(SetDestination::Y, 0);
     a.jmp(JmpCondition::YIsZero, &mut bottom);
     a.jmp(JmpCondition::Always, &mut top);
-    a.bind(&mut bottom);
+    a.bind(&mut bottom).expect("Failed to bind");
     a.set(SetDestination::Y, 1);
 
     assert_eq!(
@@ -392,10 +392,10 @@ fn test_assemble_with_wrap() {
     let mut target = a.label();
 
     a.set(SetDestination::PINDIRS, 0);
-    a.bind(&mut target);
+    a.bind(&mut target).expect("Failed to bind");
     a.r#in(InSource::NULL, 1);
     a.push(false, false);
-    a.bind(&mut source);
+    a.bind(&mut source).expect("Failed to bind");
     a.jmp(JmpCondition::Always, &mut target);
 
     assert_eq!(
@@ -486,7 +486,7 @@ fn test_wait_relative_not_used_on_irq() {
     a.wait(WaitPolarity::Zero, WaitSource::PIN, 10, true);
     assert_eq!(
         a.assemble_program::<Vec<_>>().err(),
-        Some(OperandError::RelativeMustNotBeSetWithoutWaitsourceIRQ)
+        Some(OperandError::RelativeMustNotBeSetWithoutWaitsourceIRQ.into())
     );
 }
 
