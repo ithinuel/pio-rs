@@ -6,6 +6,7 @@ use quote::quote;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use syn::{
     parenthesized, parse, parse_macro_input, Expr, ExprLit, Ident, Lit, LitInt, LitStr, Token,
@@ -255,29 +256,12 @@ impl syn::parse::Parse for PioAsmMacroArgs {
 #[proc_macro_error]
 pub fn pio_file(item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(item as PioFileMacroArgs);
-    let parsed_programs = pio_parser::Parser::<{ MAX_PROGRAM_SIZE }>::parse_file(&args.program);
-    let program = match &parsed_programs {
-        Ok(programs) => {
-            if let Some((program_name, ident)) = args.program_name {
-                if let Some(program) = programs.get(&program_name) {
-                    program
-                } else {
-                    abort! { ident, "program name not found in the provided file" }
-                }
-            } else {
-                // No name provided, check if there is only one in the map
 
-                match programs.len() {
-                    0 => abort_call_site! { "no programs in the provided file" },
-                    1 => programs.iter().next().unwrap().1,
-                    _ => {
-                        abort_call_site! { "more than 1 program in the provided file, select one using `select_program(\"my_program\")`" }
-                    }
-                }
-            }
-        }
-        Err(e) => return parse_error(e, &args.program).into(),
-    };
+    let mut input = String::new();
+    std::fs::File::open(&args.program).unwrap().read_to_string(&mut input);
+    let parsed = pio_parser::parse(&input).unwrap();
+
+    let program = pio_codegen::compile(&parsed).unwrap();
 
     to_codegen(program, args.max_program_size).into()
 }

@@ -1,20 +1,25 @@
 [package]
 name = "pio"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["snek", "The rp-rs developers"]
 edition = "2021"
 license = "MIT"
 description = "Support for the Raspberry Silicon RP2040's PIO State Machines."
 repository = "https://github.com/rp-rs/pio-rs"
 
+[features]
+default = ["std"]
+std = []
+
 [workspace]
-members = ["pio-proc", "pio-parser"]
+members = ["pio-parser", "pio-codegen"]
+exclude = ["pio-proc"]
 
 [dependencies]
-arrayvec = { version = "0.7", default_features = false }
+arrayvec = { version = "0.7.4", default_features = false, optional = false }
+heapless = { version = "0.7.16", default_features = false, optional = false }
 paste = "1.0"
 num_enum = { version = "0.5", default_features = false }
 
 [dev-dependencies]
-pio-proc = { path = "./pio-proc" }
 pio-parser = { path = "./pio-parser" }
