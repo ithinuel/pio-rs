@@ -179,11 +179,12 @@ impl<T: Storage<InstructionOrWord>> Assembler<T> {
             LabelState::Unbound(mut patch) => {
                 let resolved_address = self.instructions.len() as u8;
                 while patch != u8::MAX {
-                    // SAFETY: patch points to the next instruction to patch
+                    // those are internally generated and should not generate regular error.
+                    // If something fails here, that is a critical failure.
                     let instr = self
                         .instructions
                         .get_mut(patch as usize)
-                        .expect(&format!("Failed to find patch point at {}", patch));
+                        .unwrap_or_else(|| panic!("Failed to find patch point at {}", patch));
 
                     let mut decoded_instr = instr.instruction().expect("Invalid instruction");
                     if let InstructionOperands::JMP { address, .. } = &mut decoded_instr.operands {

@@ -274,7 +274,7 @@ pub struct CodeBlock<'i> {
 
 #[derive(Debug, Clone)]
 pub struct Program<'i> {
-    pub side_set: Option<SideSet<'i>>,
+    pub side_set: Option<pio::SideSet>,
     /// offset in program and where is wrap is set.
     pub wrap: Option<i32>,
     pub wrap_target: Option<i32>,
@@ -320,7 +320,7 @@ impl<'i> Compiler<'i> {
         // search for possible conflict
         let entry = match self.defines.entry(("", symbol.name).into()) {
             // no need for a second search if we're still in the global context
-            entry if self.current_program == "" => entry,
+            entry if self.current_program.is_empty() => entry,
             entry @ Entry::Occupied(_) => entry,
             _ => self
                 .defines
@@ -343,21 +343,28 @@ impl<'i> Compiler<'i> {
         Ok(())
     }
 
-    /// collects programs & defines
-    fn collect(&mut self, v: impl Iterator<Item = Line<'i>> + 'i) -> Result<(), Error<'i>> {
+    /// collects defines and assembles programs
+    fn collate(v: impl Iterator<Item = Line<'i>> + 'i) -> Result<Self, Error<'i>> {
+        let mut me = Self {
+            current_program: "",
+            defines: HashMap::new(),
+            programs: HashMap::new(),
+            code_blocks: Vec::new(),
+        };
+
         for line in v {
             match line {
-                Line::Program { name, location } => match self.programs.entry(name) {
+                Line::Program { name, location } => match me.programs.entry(name) {
                     Entry::Occupied(entry) => {
                         return Err(Error::ProgramAlreadyExists(entry.get().0.clone()))
                     }
                     Entry::Vacant(entry) => {
-                        self.current_program = name;
+                        me.current_program = name;
                         entry.insert((location, PartialProgram::default()));
                     }
                 },
                 Line::Directive(Directive::Wrap(l)) => {
-                    let p = self.get_current_program(l.clone(), ".wrap")?;
+                    let p = me.get_current_program(l.clone(), ".wrap")?;
 
                     if p.wrap.is_some() {
                         return Err(Error::WrapAlreadySet(l));
@@ -368,7 +375,7 @@ impl<'i> Compiler<'i> {
                     p.wrap = Some((p.instr.len(), l));
                 }
                 Line::Directive(Directive::WrapTarget(l)) => {
-                    let p = self.get_current_program(l.clone(), ".wrap_target")?;
+                    let p = me.get_current_program(l.clone(), ".wrap_target")?;
 
                     if p.wrap_target.is_some() {
                         return Err(Error::WrapTargetAlreadySet(l));
@@ -376,7 +383,7 @@ impl<'i> Compiler<'i> {
                     p.wrap_target = Some((p.instr.len(), l));
                 }
                 Line::Directive(Directive::Origin(l, v)) => {
-                    let p = self.get_current_program(l.clone(), ".origin")?;
+                    let p = me.get_current_program(l.clone(), ".origin")?;
 
                     if !p.instr.is_empty() {
                         return Err(Error::MustAppearBeforeAnyInstr {
@@ -388,7 +395,7 @@ impl<'i> Compiler<'i> {
                     p.origin = Some((v, l))
                 }
                 Line::Directive(Directive::Define(s, v)) => {
-                    self.add_symbol(s, false, v)?;
+                    me.add_symbol(s, false, v)?;
                 }
                 Line::Directive(Directive::SideSet {
                     location: l,
@@ -396,7 +403,7 @@ impl<'i> Compiler<'i> {
                     optional,
                     pindirs,
                 }) => {
-                    let p = self.get_current_program(l.clone(), ".side_set")?;
+                    let p = me.get_current_program(l.clone(), ".side_set")?;
 
                     if !p.instr.is_empty() {
                         return Err(Error::MustAppearBeforeAnyInstr {
@@ -417,58 +424,58 @@ impl<'i> Compiler<'i> {
                     var,
                     val,
                 }) => {
-                    self.get_current_program(l, ".lang_opt")?
+                    me.get_current_program(l, ".lang_opt")?
                         .lang_opt
                         .entry(lang)
                         .or_insert_with(HashMap::new)
                         .insert(var, val);
                 }
                 Line::Directive(Directive::Word(l, v)) => {
-                    self.get_current_program(l.clone(), ".word")?
+                    me.get_current_program(l.clone(), ".word")?
                         .instr
                         .push(InstrOrWord::Word(v));
                 }
                 Line::Label(symbol) => {
-                    let target = self
+                    let target = me
                         .get_current_program(symbol.location.clone(), "label")?
                         .instr
                         .len();
-                    self.add_symbol(
+                    me.add_symbol(
                         symbol,
                         true,
                         Expression::Value(Value::Integer(target as i32)),
                     )?;
                 }
                 Line::Instruction(l, i) => {
-                    self.get_current_program(l, "instr")?
+                    me.get_current_program(l, "instr")?
                         .instr
                         .push(InstrOrWord::Instruction(i));
                 }
                 Line::LabelAndInstr(symbol, i) => {
-                    let p = self.get_current_program(symbol.location.clone(), "label")?;
+                    let p = me.get_current_program(symbol.location.clone(), "label")?;
 
                     let target = p.instr.len();
                     p.instr.push(InstrOrWord::Instruction(i));
-                    self.add_symbol(
+                    me.add_symbol(
                         symbol,
                         true,
                         Expression::Value(Value::Integer(target as i32)),
                     )?;
                 }
                 Line::CodeBlock(lang, block) => {
-                    self.code_blocks.push(CodeBlock {
-                        program: self.current_program,
+                    me.code_blocks.push(CodeBlock {
+                        program: me.current_program,
                         lang,
                         block,
                     });
                 }
             }
         }
-        Ok(())
+        Ok(me)
     }
 
     /// reifyies Instructions
-    fn reify(&mut self) -> Result<(), Error<'i>> {
+    fn reify(mut self) -> Result<Self, Error<'i>> {
         // define pending here so that it's capacity gets recycled in each sub loop
         let mut pending = Vec::new();
 
@@ -492,28 +499,21 @@ impl<'i> Compiler<'i> {
                 }
             }
         }
-        Ok(())
+        Ok(self)
     }
 
     pub fn compile(v: impl Iterator<Item = Line<'i>> + 'i) -> Result<File<'i>, Error<'i>> {
-        let mut c = Compiler {
-            current_program: "",
-            defines: HashMap::new(),
-            programs: HashMap::new(),
-            code_blocks: Vec::new(),
-        };
-
-        c.collect(v)?;
-        c.reify()?;
+        let c = Compiler::collate(v)?.reify()?;
 
         let programs = c
             .programs
             .into_iter()
             .map(|(name, (_, p))| (name, p))
             .collect();
+        println!("program: {programs:#?}");
 
         let mut pending = Vec::new();
-        // reify public defines
+        // resolve public defines
         let defines = c
             .defines
             .iter()
@@ -521,6 +521,7 @@ impl<'i> Compiler<'i> {
             .map(|(&k, (s, v))| Ok((k, (s.is_label, v.resolve(k, &c.defines, &mut pending)?))))
             .try_collect()?;
 
+        println!("defines: {defines:#?}");
         Ok(File {
             programs,
             code_blocks: c.code_blocks,

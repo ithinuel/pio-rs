@@ -40,10 +40,8 @@
 #![allow(clippy::unusual_byte_groupings)]
 #![allow(clippy::upper_case_acronyms)]
 
-pub use arrayvec::ArrayVec;
-
 mod assembler;
-mod intermediate_repr;
+pub mod intermediate_repr;
 mod storage;
 
 pub use assembler::*;
@@ -54,7 +52,6 @@ pub use intermediate_repr::*;
 pub struct SideSet {
     opt: bool,
     bits: u8,
-    max: u8,
     pindirs: bool,
 }
 
@@ -63,17 +60,6 @@ impl SideSet {
         SideSet {
             opt,
             bits: bits + opt as u8,
-            max: (1 << bits) - 1,
-            pindirs,
-        }
-    }
-
-    #[doc(hidden)]
-    pub fn new_from_proc_macro(opt: bool, bits: u8, pindirs: bool) -> SideSet {
-        SideSet {
-            opt,
-            bits,
-            max: (1 << bits) - 1,
             pindirs,
         }
     }

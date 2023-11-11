@@ -23,7 +23,7 @@ mod tests {
         for (input, expected) in pairs {
             println!("Testing: {input:?}");
             assert_eq!(
-                parse(input.as_ref()).expect("Parse failure"),
+                parse(input.as_ref()).expect("Parse failure").collect::<Vec<_>>(),
                 &[expected.clone()],
                 "on input: {:?}",
                 input
@@ -33,7 +33,7 @@ mod tests {
 
     #[test]
     fn parse_program_directive() {
-        let res = parse(".program hello_world").expect("Parsing failure");
+        let res = parse(".program hello_world").expect("Parsing failure").collect::<Vec<_>>();
         assert_eq!(
             res,
             [Line::Program {
@@ -55,16 +55,16 @@ mod tests {
         };
 
         let res = parse("public label:").expect("Parsing failure");
-        assert_eq!(res, [Line::Label(label.clone())]);
+        assert_eq!(res.collect::<Vec<_>>(), [Line::Label(label.clone())]);
 
         label.public = false;
         label.location = Location(0..5);
         let res = parse("label:").expect("Parsing failure");
-        assert_eq!(res, [Line::Label(label.clone())]);
+        assert_eq!(res.collect::<Vec<_>>(), [Line::Label(label.clone())]);
 
         label.public = false;
         label.location = Location(0..5);
-        let res = parse("label: label2:").expect_err("Expected parse failure");
+        let res = parse("label: label2:").err().expect("Expected parse failure");
         match res {
             lalrpop_util::ParseError::UnrecognizedToken { expected, .. } => {
                 // This test is brittle/over-specific because order matters when it should not.
@@ -96,7 +96,7 @@ Yes indeed.
         );
 
         let res = parse(&formatted).unwrap();
-        assert_eq!(res, &[Line::CodeBlock("c-sdk", blob)])
+        assert_eq!(res.collect::<Vec<_>>(), &[Line::CodeBlock("c-sdk", blob)])
     }
 
     #[test]
@@ -107,10 +107,10 @@ Yes indeed.
         };
 
         let res = parse(".wrap").unwrap();
-        assert_eq!(res, &[Directive(Wrap(Location(0..5)))]);
+        assert_eq!(res.collect::<Vec<_>>(), &[Directive(Wrap(Location(0..5)))]);
 
         let res = parse(".wrap_target").unwrap();
-        assert_eq!(res, &[Directive(WrapTarget(Location(0..12)))]);
+        assert_eq!(res.collect::<Vec<_>>(), &[Directive(WrapTarget(Location(0..12)))]);
     }
 
     #[test]

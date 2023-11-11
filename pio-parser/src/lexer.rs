@@ -287,7 +287,6 @@ impl<'i> Iterator for Lexer<'i> {
                     };
                     match res {
                         Ok(Token::CodeBlockStart(token)) => {
-                            println!("{:?}", token);
                             self.mode = Modes::CodeBlock(outer.to_owned().morph(), span.end);
                             let mut iterator = token
                                 .chars()

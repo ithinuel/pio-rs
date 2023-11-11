@@ -1,4 +1,3 @@
-
 use std::ops::Range;
 
 /// The location of a token in an input.

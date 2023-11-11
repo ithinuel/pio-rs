@@ -368,12 +368,16 @@ impl Instruction {
         };
 
         if self.delay > delay_max {
-            return Err(OperandError::DelayOutOfRange { delay: self.delay, max: delay_max });
+            return Err(OperandError::DelayOutOfRange {
+                delay: self.delay,
+                max: delay_max,
+            });
         }
 
         let side_set = if let Some(s) = self.side_set {
-            if s > side_set.max {
-                return Err(OperandError::SideSetOutOfRange { out: s, max: side_set.max });
+            let max = (1 << side_set.bits) - 1;
+            if s > max {
+                return Err(OperandError::SideSetOutOfRange { out: s, max });
             }
             let s = (s as u16) << (5 - side_set.bits);
             if side_set.opt {
