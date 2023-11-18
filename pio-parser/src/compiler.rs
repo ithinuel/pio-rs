@@ -208,7 +208,7 @@ impl<'i> Reify<'i> for InstructionOps<'i> {
                 *v = Value::Integer(v.resolve(
                     SymbolId {
                         prog_name,
-                        var_name: "instruction",
+                        var_name: "set",
                     },
                     defines,
                     &mut pending,
@@ -218,7 +218,7 @@ impl<'i> Reify<'i> for InstructionOps<'i> {
                 *v = Expression::Value(Value::Integer(v.resolve(
                     SymbolId {
                         prog_name,
-                        var_name: "instruction",
+                        var_name: "jmp",
                     },
                     defines,
                     &mut pending,
@@ -548,7 +548,7 @@ jmp glb_var",
         )
         .err();
 
-        assert_eq!(res, Some(Error::UndefinedSymbol("instruction", "glb_var")));
+        assert_eq!(res, Some(Error::UndefinedSymbol("jmp", "glb_var")));
     }
     #[test]
     fn resolve_global_var() {
