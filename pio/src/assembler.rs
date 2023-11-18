@@ -3,7 +3,7 @@ use crate::intermediate_repr::{
     MovOperation, MovSource, OutDestination, SetDestination, WaitPolarity, WaitSource,
 };
 
-use crate::storage::Storage;
+use crate::storage::{Storage, WritableStorage};
 use crate::{Label, OperandError, Program, SideSet, Wrap};
 
 /// State of Label possibly used before being bound to a location.
@@ -82,7 +82,7 @@ impl TryFrom<IRLabel> for Label {
 /// A PIO Assembler. See chapter three of the [RP2040 Datasheet][].
 ///
 /// [RP2040 Datasheet]: https://rptl.io/rp2040-datasheet
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Assembler<T> {
     /// Keeps an sequence of intermediate representation of the instructions and words.
     instructions: T,
@@ -90,7 +90,7 @@ pub struct Assembler<T> {
     unbound_label: usize,
 }
 
-impl<T: Storage<InstructionOrWord>> Assembler<T> {
+impl<T: Storage<InstructionOrWord> + Default> Assembler<T> {
     /// Create a new Assembler.
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
@@ -108,11 +108,9 @@ impl<T: Storage<InstructionOrWord>> Assembler<T> {
     }
 
     /// Assemble the program into PIO instructions.
-    ///
-    /// Note: Panics if some label remain to be bound.
-    pub fn assemble<U>(self) -> Result<U, OperandError>
+    fn assemble<U>(self) -> Result<U, OperandError>
     where
-        U: Storage<u16>,
+        U: FromIterator<u16>,
     {
         assert_eq!(self.unbound_label, 0, "Not all label have been bound.");
         self.instructions
@@ -128,10 +126,10 @@ impl<T: Storage<InstructionOrWord>> Assembler<T> {
     ///
     /// The program contains the instructions and side-set info set. You can directly compile into a program with
     /// correct wrapping with [`Self::assemble_with_wrap`], or you can set the wrapping after the compilation with
-    /// [`Program::set_wrap`].
+    /// [`Program::set_wrap`] from labels.
     pub fn assemble_program<U>(self) -> Result<Program<U>, AssemblingError>
     where
-        U: Storage<u16>,
+        U: Storage<u16> + FromIterator<u16>,
     {
         let side_set = self.side_set;
         let code: U = self.assemble()?;
@@ -159,7 +157,7 @@ impl<T: Storage<InstructionOrWord>> Assembler<T> {
         target: IRLabel,
     ) -> Result<Program<U>, AssemblingError>
     where
-        U: Storage<u16>,
+        U: Storage<u16> + FromIterator<u16>,
     {
         let source = source.try_into().map_err(AssemblingError::WrapSource)?;
         let target = target.try_into().map_err(AssemblingError::WrapTarget)?;
@@ -178,6 +176,8 @@ impl<T: Storage<InstructionOrWord>> Assembler<T> {
             LabelState::Bound(_) => return Err(BindingError::AlreadyBound),
             LabelState::Unbound(mut patch) => {
                 let resolved_address = self.instructions.len() as u8;
+                // walk back the chain of indices and update them with the bound address of the
+                // label.
                 while patch != u8::MAX {
                     // those are internally generated and should not generate regular error.
                     // If something fails here, that is a critical failure.
@@ -230,7 +230,7 @@ macro_rules! instr {
     }
 }
 
-impl<T: Storage<InstructionOrWord>> Assembler<T> {
+impl<T: WritableStorage<InstructionOrWord>> Assembler<T> {
     instr!(
         /// Emit a `jmp` instruction to `label` for `condition`.
         jmp(self, condition: JmpCondition, label: &mut IRLabel) {
