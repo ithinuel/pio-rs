@@ -47,7 +47,7 @@ pub struct SymbolDef<'i> {
 pub enum Value<'i> {
     Integer(i32),
     Identifier(&'i str, Location),
-    Expression(Box<Expression<'i>>),
+    Expression(Location, Box<Expression<'i>>),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

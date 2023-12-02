@@ -134,7 +134,7 @@ impl<'i> Resolve<'i> for Value<'i> {
         Ok(match self {
             Value::Integer(v) => *v,
             Value::Identifier(name, _) => resolve(ctx, name, defines, pending)?,
-            Value::Expression(e) => e.resolve(ctx, defines, pending)?,
+            Value::Expression(_, e) => e.resolve(ctx, defines, pending)?,
         })
     }
 }

@@ -9,6 +9,7 @@ mod tests {
 
     use crate::{parse, Line, Location};
 
+    const COMMA: [&'static str; 2] = ["", ","];
     const BASE: crate::Instruction = crate::Instruction {
         ops: crate::InstructionOps::Nop,
         delay: None,
@@ -23,7 +24,7 @@ mod tests {
         for (input, expected) in pairs {
             println!("Testing: {input:?}");
             assert_eq!(
-                parse(input.as_ref()).expect("Parse failure").collect::<Vec<_>>(),
+                parse(input.as_ref()).expect("Parse failure").collect_vec(),
                 &[expected.clone()],
                 "on input: {:?}",
                 input
@@ -33,7 +34,9 @@ mod tests {
 
     #[test]
     fn parse_program_directive() {
-        let res = parse(".program hello_world").expect("Parsing failure").collect::<Vec<_>>();
+        let res = parse(".program hello_world")
+            .expect("Parsing failure")
+            .collect_vec();
         assert_eq!(
             res,
             [Line::Program {
@@ -46,6 +49,7 @@ mod tests {
     #[test]
     fn parse_label() {
         use super::SymbolDef;
+        use std::collections::HashSet;
 
         let mut label = SymbolDef {
             public: true,
@@ -55,26 +59,30 @@ mod tests {
         };
 
         let res = parse("public label:").expect("Parsing failure");
-        assert_eq!(res.collect::<Vec<_>>(), [Line::Label(label.clone())]);
+        assert_eq!(res.collect_vec(), [Line::Label(label.clone())]);
 
         label.public = false;
         label.location = Location(0..5);
         let res = parse("label:").expect("Parsing failure");
-        assert_eq!(res.collect::<Vec<_>>(), [Line::Label(label.clone())]);
+        assert_eq!(res.collect_vec(), [Line::Label(label.clone())]);
 
         label.public = false;
         label.location = Location(0..5);
-        let res = parse("label: label2:").err().expect("Expected parse failure");
+        let res = parse("label: label2:")
+            .err()
+            .expect("Expected parse failure");
+        let expected = [
+            "EoF", "in_", "irq", "jmp", "mov", "newline", "nop", "out", "pull", "push", "set",
+            "wait",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<HashSet<_>>();
         match res {
-            lalrpop_util::ParseError::UnrecognizedToken { expected, .. } => {
-                // This test is brittle/over-specific because order matters when it should not.
-                assert_eq!(
-                    expected,
-                    &[
-                        "EoF", "in_", "irq", "jmp", "mov", "newline", "nop", "out", "pull", "push",
-                        "set", "wait"
-                    ]
-                );
+            lalrpop_util::ParseError::UnrecognizedToken {
+                expected: result, ..
+            } => {
+                assert_eq!(result.into_iter().collect::<HashSet<_>>(), expected);
             }
             _ => panic!("Invalid error type"),
         }
@@ -96,7 +104,7 @@ Yes indeed.
         );
 
         let res = parse(&formatted).unwrap();
-        assert_eq!(res.collect::<Vec<_>>(), &[Line::CodeBlock("c-sdk", blob)])
+        assert_eq!(res.collect_vec(), &[Line::CodeBlock("c-sdk", blob)])
     }
 
     #[test]
@@ -107,102 +115,94 @@ Yes indeed.
         };
 
         let res = parse(".wrap").unwrap();
-        assert_eq!(res.collect::<Vec<_>>(), &[Directive(Wrap(Location(0..5)))]);
+        assert_eq!(res.collect_vec(), &[Directive(Wrap(Location(0..5)))]);
 
         let res = parse(".wrap_target").unwrap();
-        assert_eq!(res.collect::<Vec<_>>(), &[Directive(WrapTarget(Location(0..12)))]);
+        assert_eq!(res.collect_vec(), &[Directive(WrapTarget(Location(0..12)))]);
     }
 
     #[test]
     fn parse_expressions() {
         use crate::{Directive::*, Expression::*, Line::*, Value::*};
 
+        let origin = |expr| Directive(Origin(Location(0..7), expr));
+
         assert(&[
-            (".origin 23", Directive(Origin(Location(0..7), Integer(23)))),
+            (".origin 23", origin(Integer(23))),
             (
                 ".origin ident",
-                Directive(Origin(Location(0..7), Identifier("ident", Location(8..13)))),
+                origin(Identifier("ident", Location(8..13))),
             ),
             (
                 ".origin (1+2)",
-                Directive(Origin(
-                    Location(0..7),
-                    Expression(Plus(Value(Integer(1)).boxed(), Value(Integer(2)).boxed()).boxed()),
+                origin(Expression(
+                    Location(8..13),
+                    Plus(Value(Integer(1)).boxed(), Value(Integer(2)).boxed()).boxed(),
                 )),
             ),
             (
                 ".origin (3+4+5)",
-                Directive(Origin(
-                    Location(0..7),
-                    Expression(
-                        Plus(
-                            Plus(Value(Integer(3)).boxed(), Value(Integer(4)).boxed()).boxed(),
-                            Value(Integer(5)).boxed(),
-                        )
-                        .boxed(),
-                    ),
+                origin(Expression(
+                    Location(8..15),
+                    Plus(
+                        Plus(Value(Integer(3)).boxed(), Value(Integer(4)).boxed()).boxed(),
+                        Value(Integer(5)).boxed(),
+                    )
+                    .boxed(),
                 )),
             ),
             (
                 ".origin (6*7+8)",
-                Directive(Origin(
-                    Location(0..7),
-                    Expression(
-                        Plus(
-                            Multiply(Value(Integer(6)).boxed(), Value(Integer(7)).boxed()).boxed(),
-                            Value(Integer(8)).boxed(),
-                        )
-                        .boxed(),
-                    ),
+                origin(Expression(
+                    Location(8..15),
+                    Plus(
+                        Multiply(Value(Integer(6)).boxed(), Value(Integer(7)).boxed()).boxed(),
+                        Value(Integer(8)).boxed(),
+                    )
+                    .boxed(),
                 )),
             ),
             (
                 ".origin (9*10+11*12*13)",
-                Directive(Origin(
-                    Location(0..7),
-                    Expression(
+                origin(Expression(
+                    Location(8..23),
+                    Plus(
+                        Multiply(Value(Integer(9)).boxed(), Value(Integer(10)).boxed()).boxed(),
+                        Multiply(
+                            Multiply(Value(Integer(11)).boxed(), Value(Integer(12)).boxed())
+                                .boxed(),
+                            Value(Integer(13)).boxed(),
+                        )
+                        .boxed(),
+                    )
+                    .boxed(),
+                )),
+            ),
+            (
+                ".origin (9*10+var1*-12*13-24*::(var2))",
+                origin(Expression(
+                    Location(8..38),
+                    Minus(
                         Plus(
                             Multiply(Value(Integer(9)).boxed(), Value(Integer(10)).boxed()).boxed(),
                             Multiply(
-                                Multiply(Value(Integer(11)).boxed(), Value(Integer(12)).boxed())
-                                    .boxed(),
+                                Multiply(
+                                    Value(Identifier("var1", Location(14..18))).boxed(),
+                                    Opposite(Value(Integer(12)).boxed()).boxed(),
+                                )
+                                .boxed(),
                                 Value(Integer(13)).boxed(),
                             )
                             .boxed(),
                         )
                         .boxed(),
-                    ),
-                )),
-            ),
-            (
-                ".origin (9*10+var1*-12*13-24*::(var2))",
-                Directive(Origin(
-                    Location(0..7),
-                    Expression(
-                        Minus(
-                            Plus(
-                                Multiply(Value(Integer(9)).boxed(), Value(Integer(10)).boxed())
-                                    .boxed(),
-                                Multiply(
-                                    Multiply(
-                                        Value(Identifier("var1", Location(14..18))).boxed(),
-                                        Opposite(Value(Integer(12)).boxed()).boxed(),
-                                    )
-                                    .boxed(),
-                                    Value(Integer(13)).boxed(),
-                                )
-                                .boxed(),
-                            )
-                            .boxed(),
-                            Multiply(
-                                Value(Integer(24)).boxed(),
-                                Reverse(Value(Identifier("var2", Location(32..36))).boxed())
-                                    .boxed(),
-                            )
-                            .boxed(),
+                        Multiply(
+                            Value(Integer(24)).boxed(),
+                            Reverse(Value(Identifier("var2", Location(32..36))).boxed()).boxed(),
                         )
                         .boxed(),
-                    ),
+                    )
+                    .boxed(),
                 )),
             ),
         ]);
@@ -236,35 +236,20 @@ Yes indeed.
     #[test]
     fn parse_sideset() {
         use crate::{Directive::SideSet, Line::Directive, Value::Integer};
+        let side_set = |optional, pindirs| {
+            Directive(SideSet {
+                location: Location(0..9),
+                value: Integer(32),
+                optional,
+                pindirs,
+            })
+        };
 
         assert(&[
-            (
-                ".side_set 32",
-                Directive(SideSet {
-                    location: Location(0..9),
-                    value: Integer(32),
-                    optional: false,
-                    pindirs: false,
-                }),
-            ),
-            (
-                ".side_set 32 opt",
-                Directive(SideSet {
-                    location: Location(0..9),
-                    value: Integer(32),
-                    optional: true,
-                    pindirs: false,
-                }),
-            ),
-            (
-                ".side_set 32 opt pindirs",
-                Directive(SideSet {
-                    location: Location(0..9),
-                    value: Integer(32),
-                    optional: true,
-                    pindirs: true,
-                }),
-            ),
+            (".side_set 32", side_set(false, false)),
+            (".side_set 32 opt", side_set(true, false)),
+            (".side_set 32 pindirs", side_set(false, true)),
+            (".side_set 32 opt pindirs", side_set(true, true)),
         ]);
     }
 
@@ -303,7 +288,6 @@ Yes indeed.
                 Directive(LangOpt {
                     location: Location(0..9),
                     lang: "what_ever",
-
                     var: "fizzbarbaz",
                     val: "0x42",
                 }),
@@ -315,72 +299,29 @@ Yes indeed.
     fn parse_instruction_delay_and_side() {
         use crate::{Expression::*, Instruction, InstructionOps, Line::*, Value::*};
 
+        let nop = |delay, side_set| {
+            Instruction(
+                Location(0..3),
+                Instruction {
+                    ops: InstructionOps::Nop,
+                    delay,
+                    side_set,
+                },
+            )
+        };
+
         assert(&[
-            (
-                "NOP",
-                Instruction(
-                    Location(0..3),
-                    Instruction {
-                        ops: InstructionOps::Nop,
-                        delay: None,
-                        side_set: None,
-                    },
-                ),
-            ),
-            (
-                "nop",
-                Instruction(
-                    Location(0..3),
-                    Instruction {
-                        ops: InstructionOps::Nop,
-                        delay: None,
-                        side_set: None,
-                    },
-                ),
-            ),
-            (
-                "nop [42]",
-                Instruction(
-                    Location(0..3),
-                    Instruction {
-                        ops: InstructionOps::Nop,
-                        delay: Some(Value(Integer(42))),
-                        side_set: None,
-                    },
-                ),
-            ),
-            (
-                "nop side 12",
-                Instruction(
-                    Location(0..3),
-                    Instruction {
-                        ops: InstructionOps::Nop,
-                        delay: None,
-                        side_set: Some(Integer(12)),
-                    },
-                ),
-            ),
+            ("NOP", nop(None, None)),
+            ("nop", nop(None, None)),
+            ("nop [42]", nop(Some(Value(Integer(42))), None)),
+            ("nop side 12", nop(None, Some(Integer(12)))),
             (
                 "nop side 12 [42]",
-                Instruction(
-                    Location(0..3),
-                    Instruction {
-                        ops: InstructionOps::Nop,
-                        delay: Some(Value(Integer(42))),
-                        side_set: Some(Integer(12)),
-                    },
-                ),
+                nop(Some(Value(Integer(42))), Some(Integer(12))),
             ),
             (
                 "nop [42] side 12",
-                Instruction(
-                    Location(0..3),
-                    Instruction {
-                        ops: InstructionOps::Nop,
-                        delay: Some(Value(Integer(42))),
-                        side_set: Some(Integer(12)),
-                    },
-                ),
+                nop(Some(Value(Integer(42))), Some(Integer(12))),
             ),
         ]);
     }
@@ -389,54 +330,39 @@ Yes indeed.
     fn parse_instruction_wait() {
         use crate::{Instruction, InstructionOps, Line::*, Value::*, WaitSource::*};
 
+        let wait = |ops| Instruction(Location(0..4), Instruction { ops, ..BASE });
         let val = Integer(0);
+
         // cases for `irq _ rel` are added manually to the iterator
         let source = [
             ("irq", Irq(val.clone(), false)),
             ("pin", Pin(val.clone())),
             ("gpio", Gpio(val)),
-        ]
-        .into_iter();
+        ];
         let irq_rel_cases = [
             ("wait irq 0 rel", (Integer(1), Irq(Integer(0), true))),
             ("wait irq, 0 rel", (Integer(1), Irq(Integer(0), true))),
             ("wait 25 irq 0 rel", (Integer(25), Irq(Integer(0), true))),
             ("wait 25 irq, 0 rel", (Integer(25), Irq(Integer(0), true))),
-        ]
-        .into_iter();
+        ];
         // default duration is 1
-        let duration = [("", Integer(1)), ("25 ", Integer(25))].into_iter();
-        // commas are optional
-        let comma = ["", ","].into_iter();
+        let duration = [("", Integer(1)), ("25 ", Integer(25))];
 
-        let test_set: Vec<_> = source
-            .cartesian_product(duration)
-            .cartesian_product(comma)
-            .map(|(((s, es), (d, ed)), c)| {
+        let test_set = itertools::iproduct!(source, duration, COMMA)
+            .map(|((s, es), (d, ed), c)| {
                 let input = format!("wait {d}{s}{c} 0");
                 let expected = (ed, es);
                 (input, expected)
             })
             .chain(irq_rel_cases.map(|(a, b)| (a.to_owned(), b)))
-            .map(|(input, (duration, src))| {
-                (
-                    input,
-                    Instruction(
-                        Location(0..4),
-                        Instruction {
-                            ops: InstructionOps::Wait { duration, src },
-                            ..BASE
-                        },
-                    ),
-                )
-            })
-            .collect();
+            .map(|(input, (duration, src))| (input, wait(InstructionOps::Wait { duration, src })))
+            .collect_vec();
         assert(&test_set);
     }
 
     #[test]
     fn parse_instruction_in() {
-        use crate::{Expression::*, InSource::*, Instruction, Line::*, Value::*};
+        use crate::InSource::*;
 
         let src = [
             ("pins", Pins),
@@ -446,41 +372,23 @@ Yes indeed.
             ("isr", Isr),
             ("osr", Osr),
             ("status", Status),
-        ]
-        .into_iter();
-        let bit_count = [
-            ("0", Integer(0)),
-            (
-                "(0+5)",
-                Expression(Plus(Value(Integer(0)).boxed(), Value(Integer(5)).boxed()).boxed()),
-            ),
-        ]
-        .into_iter();
-        let test_set: Vec<_> = src
-            .cartesian_product(bit_count)
-            .flat_map(|((in_src, src), (in_bit_count, bit_count))| {
-                let input = format!("in {in_src} {in_bit_count}");
-                let input_with_comma = format!("in {in_src}, {in_bit_count}");
-                let expected = Instruction(
-                    Location(0..2),
-                    Instruction {
-                        ops: crate::InstructionOps::In { src, bit_count },
-                        ..BASE
-                    },
-                );
+        ];
 
-                [(input, expected.clone()), (input_with_comma, expected)].into_iter()
-            })
-            .collect();
+        let test_set = generate_in_and_out_test_set("in", src, |source, bit_count| {
+            crate::InstructionOps::In {
+                src: source,
+                bit_count,
+            }
+        });
 
         assert(&test_set);
     }
 
     #[test]
     fn parse_instruction_out() {
-        use crate::{Expression::*, Instruction, Line::*, OutTarget::*, Value::*};
+        use crate::OutTarget::*;
 
-        let src = [
+        let trg = [
             ("pins", Pins),
             ("x", X),
             ("y", Y),
@@ -489,39 +397,54 @@ Yes indeed.
             ("isr", Isr),
             ("pc", Pc),
             ("exec", Exec),
-        ]
-        .into_iter();
+        ];
+
+        let test_set = generate_in_and_out_test_set("out", trg, |target, bit_count| {
+            crate::InstructionOps::Out { target, bit_count }
+        });
+        assert(&test_set);
+    }
+
+    fn generate_in_and_out_test_set<'i, T: Clone>(
+        cmd: &str,
+        v: impl IntoIterator<Item = (&'static str, T)> + Clone,
+        mut f: impl for<'u> FnMut(T, crate::Value<'u>) -> crate::InstructionOps<'u>,
+    ) -> Vec<(String, Line<'i>)> {
+        use crate::{Expression::*, Instruction, Line::*, Value::*};
+
+        let instr = |len, ops| Instruction(Location(0..len), Instruction { ops, ..BASE });
         let bit_count = [
             ("0", Integer(0)),
             (
                 "(0+5)",
-                Expression(Plus(Value(Integer(0)).boxed(), Value(Integer(5)).boxed()).boxed()),
+                Expression(
+                    Location(0..5),
+                    Plus(Value(Integer(0)).boxed(), Value(Integer(5)).boxed()).boxed(),
+                ),
             ),
-        ]
-        .into_iter();
-        let test_set: Vec<_> = src
-            .cartesian_product(bit_count)
-            .flat_map(|((in_trg, target), (in_bit_count, bit_count))| {
-                let input = format!("out {in_trg} {in_bit_count}");
-                let input_with_comma = format!("out {in_trg}, {in_bit_count}");
-                let expected = Instruction(
-                    Location(0..3),
-                    Instruction {
-                        ops: crate::InstructionOps::Out { target, bit_count },
-                        ..BASE
-                    },
-                );
+        ];
+        itertools::iproduct!(v, COMMA, bit_count)
+            .map(|((in_str, val), comma, (in_bit_count, mut bit_count))| {
+                let input = format!("{cmd} {in_str}{comma} {in_bit_count}");
+                match &mut bit_count {
+                    Expression(loc, ..) => {
+                        let b = cmd.len() + 1 + in_str.len() + 1 + comma.len() + loc.0.start;
+                        let e = cmd.len() + 1 + in_str.len() + 1 + comma.len() + loc.0.end;
+                        *loc = Location(b..e)
+                    }
+                    _ => {}
+                }
+                let expected = instr(cmd.len(), f(val, bit_count));
 
-                [(input, expected.clone()), (input_with_comma, expected)].into_iter()
+                (input, expected)
             })
-            .collect();
-
-        assert(&test_set);
+            .collect()
     }
 
     #[test]
     fn parse_instruction_jmp() {
         use crate::{Expression::Value, Instruction, JmpCondition::*, Line::*, Value::Integer};
+        let jmp = |ops| Instruction(Location(0..3), Instruction { ops, ..BASE });
 
         let src = [
             ("! x", Some(NotX)),
@@ -532,26 +455,17 @@ Yes indeed.
             ("pin", Some(Pin)),
             ("! osre", Some(OSRNotEmpty)),
             ("", None),
-        ]
-        .into_iter();
-        let test_set: Vec<_> = src
-            .flat_map(|(in_cond, condition)| {
-                let input = format!("jmp {in_cond} 0");
-                let input_with_comma = format!("jmp {in_cond}, 0");
-                let expected = Instruction(
-                    Location(0..3),
-                    Instruction {
-                        ops: crate::InstructionOps::Jmp {
-                            condition,
-                            target: Value(Integer(0)),
-                        },
-                        ..BASE
-                    },
-                );
-
-                [(input, expected.clone()), (input_with_comma, expected)].into_iter()
+        ];
+        let test_set = itertools::iproduct!(src, COMMA)
+            .map(|((in_cond, condition), comma)| {
+                let input = format!("jmp {in_cond}{comma} 0");
+                let expected = jmp(crate::InstructionOps::Jmp {
+                    condition,
+                    target: Value(Integer(0)),
+                });
+                (input, expected)
             })
-            .collect();
+            .collect_vec();
 
         assert(&test_set);
     }
@@ -565,48 +479,36 @@ Yes indeed.
         };
 
         let blocking = [(" block", true), (" noblock", false), ("", true)];
-        let iffull = [(" iffull", true), ("", false)].into_iter();
-        let ifempty = [(" ifempty", true), ("", false)].into_iter();
-
-        let test_set: Vec<_> = blocking
-            .into_iter()
-            .cartesian_product(iffull)
-            .map(|(b, i)| {
-                let input = format!("push{}{}", i.0, b.0);
-                let expected = Instruction(
-                    Location(0..4),
-                    Instruction {
-                        ops: Push {
-                            if_full: i.1,
-                            blocking: b.1,
-                        },
-                        delay: None,
-                        side_set: None,
-                    },
-                );
-                (input, expected)
-            })
-            .chain(
-                blocking
-                    .into_iter()
-                    .cartesian_product(ifempty)
-                    .map(|(b, i)| {
-                        let input = format!("pull{}{}", i.0, b.0);
-                        let expected = Instruction(
-                            Location(0..4),
-                            Instruction {
-                                ops: Pull {
-                                    if_empty: i.1,
-                                    blocking: b.1,
-                                },
-                                delay: None,
-                                side_set: None,
-                            },
-                        );
-                        (input, expected)
-                    }),
+        let iffull = [(" iffull", true), ("", false)];
+        let ifempty = [(" ifempty", true), ("", false)];
+        let instr = |ops| {
+            Instruction(
+                Location(0..4),
+                Instruction {
+                    ops,
+                    delay: None,
+                    side_set: None,
+                },
             )
-            .collect();
+        };
+
+        let push = itertools::iproduct!(blocking, iffull).map(|(b, i)| {
+            let input = format!("push{}{}", i.0, b.0);
+            let expected = instr(Push {
+                if_full: i.1,
+                blocking: b.1,
+            });
+            (input, expected)
+        });
+        let pull = itertools::iproduct!(blocking, ifempty).map(|(b, i)| {
+            let input = format!("pull{}{}", i.0, b.0);
+            let expected = instr(Pull {
+                if_empty: i.1,
+                blocking: b.1,
+            });
+            (input, expected)
+        });
+        let test_set = push.chain(pull).collect_vec();
 
         assert(&test_set);
     }
@@ -614,28 +516,29 @@ Yes indeed.
     #[test]
     fn parse_instruction_set() {
         use crate::{Instruction, InstructionOps::Set, Line::*, SetTarget::*, Value::Integer};
+        let set = |ops| {
+            Instruction(
+                Location(0..3),
+                Instruction {
+                    ops,
+                    delay: None,
+                    side_set: None,
+                },
+            )
+        };
 
         let set_targets = [("pins", Pins), ("pindirs", PinDirs), ("x", X), ("y", Y)];
 
-        let test_set: Vec<_> = set_targets
-            .into_iter()
-            .flat_map(|(target, expected)| {
-                let input = format!("set {target} 0");
-                let input_with_comma = format!("set {target}, 0");
-                let expected = Instruction(
-                    Location(0..3),
-                    Instruction {
-                        ops: Set {
-                            target: expected,
-                            value: Integer(0),
-                        },
-                        delay: None,
-                        side_set: None,
-                    },
-                );
-                [(input, expected.clone()), (input_with_comma, expected)].into_iter()
+        let test_set = itertools::iproduct!(set_targets, COMMA)
+            .map(|((target, expected), comma)| {
+                let input = format!("set {target}{comma} 0");
+                let expected = set(Set {
+                    target: expected,
+                    value: Integer(0),
+                });
+                (input, expected)
             })
-            .collect();
+            .collect_vec();
 
         assert(&test_set);
     }
@@ -643,7 +546,16 @@ Yes indeed.
     #[test]
     fn parse_instruction_mov() {
         use crate::{Instruction, Line::*, MovOp, MovSource, MovTarget};
-
+        let mov = |ops| {
+            Instruction(
+                Location(0..3),
+                Instruction {
+                    ops,
+                    delay: None,
+                    side_set: None,
+                },
+            )
+        };
         let target = [
             ("pins", MovTarget::Pins),
             ("x", MovTarget::X),
@@ -652,8 +564,7 @@ Yes indeed.
             ("pc", MovTarget::Pc),
             ("isr", MovTarget::Isr),
             ("osr", MovTarget::Osr),
-        ]
-        .into_iter();
+        ];
         let source = [
             ("pins", MovSource::Pins),
             ("x", MovSource::X),
@@ -662,37 +573,25 @@ Yes indeed.
             ("status", MovSource::Status),
             ("isr", MovSource::Isr),
             ("osr", MovSource::Osr),
-        ]
-        .into_iter();
+        ];
         let op = [
             ("!", Some(MovOp::Not)),
             ("::", Some(MovOp::Reverse)),
             ("", None),
-        ]
-        .into_iter();
+        ];
 
-        let test_data: Vec<_> = target
-            .cartesian_product(op)
-            .cartesian_product(source)
-            .flat_map(|((trg, op), src)| {
-                let input = format!("mov {} {}{}", trg.0, op.0, src.0);
-                let input_with_comma = format!("mov {}, {}{}", trg.0, op.0, src.0);
-                let expected = Instruction(
-                    Location(0..3),
-                    Instruction {
-                        ops: crate::InstructionOps::Mov {
-                            src: src.1,
-                            op: op.1,
-                            trg: trg.1,
-                        },
-                        delay: None,
-                        side_set: None,
-                    },
-                );
+        let test_data = itertools::iproduct!(target, COMMA, op, source)
+            .map(|(trg, comma, op, src)| {
+                let input = format!("mov {}{comma} {}{}", trg.0, op.0, src.0);
+                let expected = mov(crate::InstructionOps::Mov {
+                    src: src.1,
+                    op: op.1,
+                    trg: trg.1,
+                });
 
-                [(input, expected.clone()), (input_with_comma, expected)].into_iter()
+                (input, expected)
             })
-            .collect();
+            .collect_vec();
 
         assert(&test_data);
     }
@@ -700,6 +599,16 @@ Yes indeed.
     #[test]
     fn parse_instruction_irq() {
         use crate::{Instruction, InstructionOps::Irq, IrqModifier, Line::*, Value::Integer};
+        let irq = |ops| {
+            Instruction(
+                Location(0..3),
+                Instruction {
+                    ops,
+                    delay: None,
+                    side_set: None,
+                },
+            )
+        };
 
         let irq_modifier = [
             ("clear ", IrqModifier::Clear),
@@ -707,30 +616,21 @@ Yes indeed.
             ("nowait ", IrqModifier::Set),
             ("set ", IrqModifier::Set),
             ("", IrqModifier::Set),
-        ]
-        .into_iter();
+        ];
 
-        let rel = [(" rel", true), ("", false)].into_iter();
+        let rel = [(" rel", true), ("", false)];
 
-        let test_data: Vec<_> = irq_modifier
-            .cartesian_product(rel)
+        let test_data = itertools::iproduct!(irq_modifier, rel)
             .map(|(m, r)| {
                 let input = format!("irq {}0{}", m.0, r.0);
-                let expected = Instruction(
-                    Location(0..3),
-                    Instruction {
-                        ops: Irq {
-                            modifier: m.1,
-                            value: Integer(0),
-                            relative: r.1,
-                        },
-                        delay: None,
-                        side_set: None,
-                    },
-                );
+                let expected = irq(Irq {
+                    modifier: m.1,
+                    value: Integer(0),
+                    relative: r.1,
+                });
                 (input, expected)
             })
-            .collect();
+            .collect_vec();
 
         assert(&test_data);
     }

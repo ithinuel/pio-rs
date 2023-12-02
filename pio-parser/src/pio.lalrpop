@@ -68,7 +68,7 @@ Directive: Directive<'i> = {
 Value: Value<'i> = {
     Int => Value::Integer(<>),
     <l:@L> <i:Id> <r:@R> => Value::Identifier(i, Location(l..r)),
-    "(" <Expression> ")" => Value::Expression(<>.boxed()),
+    <l:@L> "(" <e:Expression> ")" <r:@R> => Value::Expression(Location(l..r), e.boxed()),
 }
 
 Expression: Expression<'i> = {
