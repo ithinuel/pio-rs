@@ -131,7 +131,7 @@ Yes indeed.
             (".origin 23", origin(Integer(23))),
             (
                 ".origin ident",
-                origin(Identifier("ident", Location(8..13))),
+                origin(Identifier(Location(8..13), "ident")),
             ),
             (
                 ".origin (1+2)",
@@ -187,7 +187,7 @@ Yes indeed.
                             Multiply(Value(Integer(9)).boxed(), Value(Integer(10)).boxed()).boxed(),
                             Multiply(
                                 Multiply(
-                                    Value(Identifier("var1", Location(14..18))).boxed(),
+                                    Value(Identifier(Location(14..18), "var1")).boxed(),
                                     Opposite(Value(Integer(12)).boxed()).boxed(),
                                 )
                                 .boxed(),
@@ -198,7 +198,7 @@ Yes indeed.
                         .boxed(),
                         Multiply(
                             Value(Integer(24)).boxed(),
-                            Reverse(Value(Identifier("var2", Location(32..36))).boxed()).boxed(),
+                            Reverse(Value(Identifier(Location(32..36), "var2")).boxed()).boxed(),
                         )
                         .boxed(),
                     )

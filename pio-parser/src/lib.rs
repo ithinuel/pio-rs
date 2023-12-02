@@ -6,6 +6,7 @@ mod lexer;
 mod parser;
 
 pub use ast::*;
+use compiler::ParsedProgram;
 mod compiler;
 
 #[derive(thiserror::Error, Debug, PartialEq)]
@@ -35,6 +36,6 @@ pub fn parse(input: &str) -> Result<impl Iterator<Item = Line<'_>>, parser::Erro
 }
 
 /// Compiles the input and returns a File representation.
-pub fn compile(input: &str) -> Result<compiler::File<'_>, Error<'_>> {
+pub fn compile(input: &str) -> Result<compiler::File<'_, ParsedProgram<'_>>, Error<'_>> {
     Ok(compiler::Compiler::compile(parse(input)?)?)
 }

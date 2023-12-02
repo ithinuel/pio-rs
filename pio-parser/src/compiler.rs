@@ -133,7 +133,7 @@ impl<'i> Resolve<'i> for Value<'i> {
     ) -> Result<i32, Error<'i>> {
         Ok(match self {
             Value::Integer(v) => *v,
-            Value::Identifier(name, _) => resolve(ctx, name, defines, pending)?,
+            Value::Identifier(_, name) => resolve(ctx, name, defines, pending)?,
             Value::Expression(_, e) => e.resolve(ctx, defines, pending)?,
         })
     }
@@ -254,15 +254,21 @@ impl<'i> InstrOrWord<'i> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct AssembledProgram<'i> {
+    pub program: pio::Program<Vec<pio::InstructionOrWord>>,
+    pub lang_opt: HashMap<&'i str, HashMap<&'i str, &'i str>>,
+}
+
 #[derive(Debug, Clone, Default)]
-pub struct PartialProgram<'i> {
+pub struct ParsedProgram<'i> {
     pub side_set: Option<SideSet<'i>>,
     /// offset in program and where is wrap is set.
     pub wrap: Option<(usize, Location)>,
     pub wrap_target: Option<(usize, Location)>,
     pub origin: Option<(Value<'i>, Location)>,
     pub lang_opt: HashMap<&'i str, HashMap<&'i str, &'i str>>,
-    pub instr: Vec<InstrOrWord<'i>>, // TODO: The instruction here needs to be a different type.
+    pub instr: Vec<InstrOrWord<'i>>,
 }
 
 #[derive(Debug, Clone)]
@@ -283,8 +289,8 @@ pub struct Program<'i> {
     pub instr: Vec<InstrOrWord<'i>>,
 }
 #[derive(Debug, Clone)]
-pub struct File<'i> {
-    pub programs: HashMap<&'i str, PartialProgram<'i>>,
+pub struct File<'i, T: 'i> {
+    pub programs: HashMap<&'i str, T>,
     pub code_blocks: Vec<CodeBlock<'i>>,
     pub defines: HashMap<SymbolId<'i>, (bool, i32)>,
 }
@@ -292,7 +298,7 @@ pub struct File<'i> {
 pub struct Compiler<'i> {
     current_program: &'i str,
     defines: Defines<'i>,
-    programs: HashMap<&'i str, (Location, PartialProgram<'i>)>,
+    programs: HashMap<&'i str, (Location, ParsedProgram<'i>)>,
     /// program, lang, block
     code_blocks: Vec<CodeBlock<'i>>,
 }
@@ -301,7 +307,7 @@ impl<'i> Compiler<'i> {
         &mut self,
         l: Location,
         source: &'static str,
-    ) -> Result<&mut PartialProgram<'i>, Error<'i>> {
+    ) -> Result<&mut ParsedProgram<'i>, Error<'i>> {
         match self.programs.get_mut(self.current_program) {
             Some((_, p)) => Ok(p),
             None => Err(Error::InvalidOutsideOfProgram {
@@ -360,7 +366,7 @@ impl<'i> Compiler<'i> {
                     }
                     Entry::Vacant(entry) => {
                         me.current_program = name;
-                        entry.insert((location, PartialProgram::default()));
+                        entry.insert((location, ParsedProgram::default()));
                     }
                 },
                 Line::Directive(Directive::Wrap(l)) => {
@@ -502,7 +508,9 @@ impl<'i> Compiler<'i> {
         Ok(self)
     }
 
-    pub fn compile(v: impl Iterator<Item = Line<'i>> + 'i) -> Result<File<'i>, Error<'i>> {
+    pub fn compile(
+        v: impl Iterator<Item = Line<'i>> + 'i,
+    ) -> Result<File<'i, ParsedProgram<'i>>, Error<'i>> {
         let c = Compiler::collate(v)?.reify()?;
 
         let programs = c
@@ -527,6 +535,20 @@ impl<'i> Compiler<'i> {
             code_blocks: c.code_blocks,
             defines,
         })
+    }
+
+    pub fn assemble(
+        v: File<'i, ParsedProgram<'i>>,
+    ) -> Result<File<'i, AssembledProgram>, Error<'i>> {
+        for parsed_program in v.programs {
+            todo!()
+        }
+
+        //let prog = AssembledProgram {
+        //    program: todo!(),
+        //    lang_opt: v.lang_opt,
+        //};
+        todo!()
     }
 }
 
