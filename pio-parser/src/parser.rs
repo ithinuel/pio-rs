@@ -11,7 +11,7 @@ mod tests {
 
     const COMMA: [&'static str; 2] = ["", ","];
     const BASE: crate::Instruction = crate::Instruction {
-        ops: crate::InstructionOps::Nop,
+        ops: crate::InstructionOperands::Nop,
         delay: None,
         side_set: None,
     };
@@ -297,13 +297,15 @@ Yes indeed.
 
     #[test]
     fn parse_instruction_delay_and_side() {
-        use crate::{Expression::*, Instruction, InstructionOps, Line::*, Value::*};
+        use crate::{Expression::*, Instruction, InstructionOperands, Line::*, Value::*};
 
+        let forty_two = Some(Value(Integer(42)));
+        let twelve = Some(Integer(42));
         let nop = |delay, side_set| {
             Instruction(
                 Location(0..3),
                 Instruction {
-                    ops: InstructionOps::Nop,
+                    ops: InstructionOperands::Nop,
                     delay,
                     side_set,
                 },
@@ -313,49 +315,48 @@ Yes indeed.
         assert(&[
             ("NOP", nop(None, None)),
             ("nop", nop(None, None)),
-            ("nop [42]", nop(Some(Value(Integer(42))), None)),
-            ("nop side 12", nop(None, Some(Integer(12)))),
-            (
-                "nop side 12 [42]",
-                nop(Some(Value(Integer(42))), Some(Integer(12))),
-            ),
-            (
-                "nop [42] side 12",
-                nop(Some(Value(Integer(42))), Some(Integer(12))),
-            ),
+            ("nop [42]", nop(forty_two, None)),
+            ("nop side 12", nop(None, twelve)),
+            ("nop side 12 [42]", nop(forty_two, twelve)),
+            ("nop [42] side 12", nop(forty_two, twelve)),
         ]);
     }
 
     #[test]
     fn parse_instruction_wait() {
-        use crate::{Instruction, InstructionOps, Line::*, Value::*, WaitSource::*};
+        use crate::{Instruction, InstructionOperands, Line::*, Value::*, WaitSource::*};
 
-        let wait = |ops| Instruction(Location(0..4), Instruction { ops, ..BASE });
-        let val = Integer(0);
+        let wait = |polarity, src| {
+            Instruction(
+                Location(0..4),
+                Instruction {
+                    ops: InstructionOperands::Wait { polarity, src },
+                    ..BASE
+                },
+            )
+        };
 
-        // cases for `irq _ rel` are added manually to the iterator
-        let source = [
-            ("irq", Irq(val.clone(), false)),
-            ("pin", Pin(val.clone())),
-            ("gpio", Gpio(val)),
-        ];
-        let irq_rel_cases = [
-            ("wait irq 0 rel", (Integer(1), Irq(Integer(0), true))),
-            ("wait irq, 0 rel", (Integer(1), Irq(Integer(0), true))),
-            ("wait 25 irq 0 rel", (Integer(25), Irq(Integer(0), true))),
-            ("wait 25 irq, 0 rel", (Integer(25), Irq(Integer(0), true))),
-        ];
-        // default duration is 1
-        let duration = [("", Integer(1)), ("25 ", Integer(25))];
+        let polarity = [("1", Integer(1)), ("0", Integer(0))];
+        let source = ["pin", "gpio", "irq"];
+        let value = [("1", Integer(1)), ("26", Integer(26))];
+        let relative = ["", " rel"];
 
-        let test_set = itertools::iproduct!(source, duration, COMMA)
-            .map(|((s, es), (d, ed), c)| {
-                let input = format!("wait {d}{s}{c} 0");
-                let expected = (ed, es);
+        let irq = itertools::iproduct!(polarity, COMMA, source, COMMA, value, COMMA, relative)
+            .filter(|(p, _, s, _, v, c, _r)| false)
+            .map(|(p, c1, s, c2, v, c3, r)| {
+                let input = format!("wait {p.0}{c1} {s}{c2} {v.0}{c3}{r}");
+                let expected = (
+                    p.1,
+                    match s {
+                        "pin" => Pin(v.1),
+                        "gpio" => Gpio(v.1),
+                        "irq" => Irq(v.1, !r.is_empty()),
+                        _ => unreachable!(),
+                    },
+                );
                 (input, expected)
             })
-            .chain(irq_rel_cases.map(|(a, b)| (a.to_owned(), b)))
-            .map(|(input, (duration, src))| (input, wait(InstructionOps::Wait { duration, src })))
+            .map(|(input, (polarity, src))| (input, wait(polarity, src)))
             .collect_vec();
         assert(&test_set);
     }
@@ -375,7 +376,7 @@ Yes indeed.
         ];
 
         let test_set = generate_in_and_out_test_set("in", src, |source, bit_count| {
-            crate::InstructionOps::In {
+            crate::InstructionOperands::In {
                 src: source,
                 bit_count,
             }
@@ -400,7 +401,7 @@ Yes indeed.
         ];
 
         let test_set = generate_in_and_out_test_set("out", trg, |target, bit_count| {
-            crate::InstructionOps::Out { target, bit_count }
+            crate::InstructionOperands::Out { target, bit_count }
         });
         assert(&test_set);
     }
@@ -408,7 +409,7 @@ Yes indeed.
     fn generate_in_and_out_test_set<'i, T: Clone>(
         cmd: &str,
         v: impl IntoIterator<Item = (&'static str, T)> + Clone,
-        mut f: impl for<'u> FnMut(T, crate::Value<'u>) -> crate::InstructionOps<'u>,
+        mut f: impl for<'u> FnMut(T, crate::Value<'u>) -> crate::InstructionOperands<'u>,
     ) -> Vec<(String, Line<'i>)> {
         use crate::{Expression::*, Instruction, Line::*, Value::*};
 
@@ -459,7 +460,7 @@ Yes indeed.
         let test_set = itertools::iproduct!(src, COMMA)
             .map(|((in_cond, condition), comma)| {
                 let input = format!("jmp {in_cond}{comma} 0");
-                let expected = jmp(crate::InstructionOps::Jmp {
+                let expected = jmp(crate::InstructionOperands::Jmp {
                     condition,
                     target: Value(Integer(0)),
                 });
@@ -474,7 +475,7 @@ Yes indeed.
     fn parse_instruction_push_pull() {
         use crate::{
             Instruction,
-            InstructionOps::{Pull, Push},
+            InstructionOperands::{Pull, Push},
             Line::*,
         };
 
@@ -515,7 +516,7 @@ Yes indeed.
 
     #[test]
     fn parse_instruction_set() {
-        use crate::{Instruction, InstructionOps::Set, Line::*, SetTarget::*, Value::Integer};
+        use crate::{Instruction, InstructionOperands::Set, Line::*, SetTarget::*, Value::Integer};
         let set = |ops| {
             Instruction(
                 Location(0..3),
@@ -583,7 +584,7 @@ Yes indeed.
         let test_data = itertools::iproduct!(target, COMMA, op, source)
             .map(|(trg, comma, op, src)| {
                 let input = format!("mov {}{comma} {}{}", trg.0, op.0, src.0);
-                let expected = mov(crate::InstructionOps::Mov {
+                let expected = mov(crate::InstructionOperands::Mov {
                     src: src.1,
                     op: op.1,
                     trg: trg.1,
@@ -598,7 +599,7 @@ Yes indeed.
 
     #[test]
     fn parse_instruction_irq() {
-        use crate::{Instruction, InstructionOps::Irq, IrqModifier, Line::*, Value::Integer};
+        use crate::{Instruction, InstructionOperands::Irq, IrqModifier, Line::*, Value::Integer};
         let irq = |ops| {
             Instruction(
                 Location(0..3),

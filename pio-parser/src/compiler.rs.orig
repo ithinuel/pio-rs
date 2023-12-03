@@ -62,6 +62,85 @@ impl<'i> From<(&'i str, &'i str)> for SymbolId<'i> {
 /// empty program name is the special name for global scope.
 type Defines<'i> = HashMap<SymbolId<'i>, (SymbolDef<'i>, Expression<'i>)>;
 
+trait Resolve<'i> {
+    fn resolve(
+        &self,
+        ctx: SymbolId<'i>,
+        defines: &Defines<'i>,
+        pending: &mut Vec<&'i str>,
+    ) -> Result<i32, Error<'i>>;
+}
+
+impl<'i> Resolve<'i> for Expression<'i> {
+    fn resolve(
+        &self,
+        ctx: SymbolId<'i>,
+        defines: &Defines<'i>,
+        pending: &mut Vec<&'i str>,
+    ) -> Result<i32, Error<'i>> {
+        Ok(match self {
+            Expression::Value(v) => v.resolve(ctx, defines, pending)?,
+            Expression::Plus(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l.checked_add(r)
+                    .ok_or(Error::IntegerOverflow(ctx.var_name))?
+            }
+            Expression::Minus(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l.checked_sub(r)
+                    .ok_or(Error::IntegerOverflow(ctx.var_name))?
+            }
+            Expression::Multiply(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l.checked_mul(r)
+                    .ok_or(Error::IntegerOverflow(ctx.var_name))?
+            }
+            Expression::Divide(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l.checked_div(r).ok_or(Error::DivideByZero(ctx.var_name))?
+            }
+            Expression::Or(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l | r
+            }
+            Expression::And(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l & r
+            }
+            Expression::Xor(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l ^ r
+            }
+            Expression::Opposite(v) => v
+                .resolve(ctx, defines, pending)?
+                .checked_neg()
+                .ok_or(Error::IntegerOverflow(ctx.var_name))?,
+            Expression::Reverse(v) => v.resolve(ctx, defines, pending)?.reverse_bits(),
+        })
+    }
+}
+impl<'i> Resolve<'i> for Value<'i> {
+    fn resolve(
+        &self,
+        ctx: SymbolId<'i>,
+        defines: &Defines<'i>,
+        pending: &mut Vec<&'i str>,
+    ) -> Result<i32, Error<'i>> {
+        Ok(match self {
+            Value::Integer(v) => *v,
+            Value::Identifier(_, name) => resolve(ctx, name, defines, pending)?,
+            Value::Expression(_, e) => e.resolve(ctx, defines, pending)?,
+        })
+    }
+}
+
 fn resolve<'i>(
     ctx: SymbolId<'i>,
     var_name: &'i str,
@@ -82,6 +161,10 @@ fn resolve<'i>(
     pending.pop();
     Ok(v)
 }
+
+//trait Reify<'i> {
+//    fn reify(&mut self, prog_name: &'i str, defines: &Defines<'i>) -> Result<(), Error<'i>>;
+//}
 
 impl<'i> Instruction<'i> {
     fn reify(
@@ -133,19 +216,19 @@ impl<'i> Instruction<'i> {
     }
 }
 
-impl<'i> InstructionOperands<'i> {
+impl<'i> InstructionOps<'i> {
     fn reify(&mut self, prog_name: &'i str, defines: &Defines<'i>) -> Result<(), Error<'i>> {
         let mut pending = Vec::new();
         match self {
-            InstructionOperands::Push { .. }
-            | InstructionOperands::Pull { .. }
-            | InstructionOperands::Nop
-            | InstructionOperands::Mov { .. } => {}
-            InstructionOperands::Out { bit_count: v, .. }
-            | InstructionOperands::In { bit_count: v, .. }
-            | InstructionOperands::Wait { polarity: v, .. }
-            | InstructionOperands::Irq { value: v, .. }
-            | InstructionOperands::Set { value: v, .. } => {
+            InstructionOps::Push { .. }
+            | InstructionOps::Pull { .. }
+            | InstructionOps::Nop
+            | InstructionOps::Mov { .. } => {}
+            InstructionOps::Out { bit_count: v, .. }
+            | InstructionOps::In { bit_count: v, .. }
+            | InstructionOps::Wait { duration: v, .. }
+            | InstructionOps::Irq { value: v, .. }
+            | InstructionOps::Set { value: v, .. } => {
                 *v = Value::Integer(v.resolve(
                     SymbolId {
                         prog_name,
@@ -155,7 +238,7 @@ impl<'i> InstructionOperands<'i> {
                     &mut pending,
                 )?);
             }
-            InstructionOperands::Jmp { target: v, .. } => {
+            InstructionOps::Jmp { target: v, .. } => {
                 *v = Expression::Value(Value::Integer(v.resolve(
                     SymbolId {
                         prog_name,
@@ -202,7 +285,11 @@ pub struct AssembledProgram<'i> {
 }
 
 #[derive(Debug, Clone, Default)]
+<<<<<<< Updated upstream
 pub struct ParsedProgram<'i> {
+=======
+pub struct Program<'i> {
+>>>>>>> Stashed changes
     pub side_set: Option<SideSet<'i>>,
     /// offset in program and where is wrap is set.
     pub wrap: Option<(usize, Location)>,
@@ -220,6 +307,7 @@ pub struct CodeBlock<'i> {
 }
 
 #[derive(Debug, Clone)]
+<<<<<<< Updated upstream
 pub struct Program<'i> {
     pub side_set: Option<pio::SideSet>,
     /// offset in program and where is wrap is set.
@@ -232,6 +320,10 @@ pub struct Program<'i> {
 #[derive(Debug, Clone)]
 pub struct File<'i, T: 'i> {
     pub programs: HashMap<&'i str, T>,
+=======
+pub struct File<'i> {
+    pub programs: HashMap<&'i str, Program<'i>>,
+>>>>>>> Stashed changes
     pub code_blocks: Vec<CodeBlock<'i>>,
     pub defines: HashMap<SymbolId<'i>, (bool, i32)>,
 }
@@ -239,7 +331,11 @@ pub struct File<'i, T: 'i> {
 pub struct Compiler<'i> {
     current_program: &'i str,
     defines: Defines<'i>,
+<<<<<<< Updated upstream
     programs: HashMap<&'i str, (Location, ParsedProgram<'i>)>,
+=======
+    programs: HashMap<&'i str, (Location, Program<'i>)>,
+>>>>>>> Stashed changes
     /// program, lang, block
     code_blocks: Vec<CodeBlock<'i>>,
 }
@@ -248,7 +344,11 @@ impl<'i> Compiler<'i> {
         &mut self,
         l: Location,
         source: &'static str,
+<<<<<<< Updated upstream
     ) -> Result<&mut ParsedProgram<'i>, Error<'i>> {
+=======
+    ) -> Result<&mut Program<'i>, Error<'i>> {
+>>>>>>> Stashed changes
         match self.programs.get_mut(self.current_program) {
             Some((_, p)) => Ok(p),
             None => Err(Error::InvalidOutsideOfProgram {
@@ -307,7 +407,11 @@ impl<'i> Compiler<'i> {
                     }
                     Entry::Vacant(entry) => {
                         me.current_program = name;
+<<<<<<< Updated upstream
                         entry.insert((location, ParsedProgram::default()));
+=======
+                        entry.insert((location, Program::default()));
+>>>>>>> Stashed changes
                     }
                 },
                 Line::Directive(Directive::Wrap(l)) => {
@@ -495,7 +599,7 @@ impl<'i> Compiler<'i> {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::{Expression, Instruction, InstructionOperands, Value};
+    use crate::ast::{Expression, Instruction, InstructionOps, Value};
 
     use super::Error;
 
@@ -529,7 +633,7 @@ jmp glb_var",
         assert_eq!(
             p.programs["test"].instr[0].instruction(),
             Some(&Instruction {
-                ops: InstructionOperands::Jmp {
+                ops: InstructionOps::Jmp {
                     condition: None,
                     target: Expression::Value(Value::Integer(0))
                 },
@@ -554,7 +658,7 @@ jmp local_var",
         assert_eq!(
             p.programs["test"].instr[0].instruction(),
             Some(&Instruction {
-                ops: InstructionOperands::Jmp {
+                ops: InstructionOps::Jmp {
                     condition: None,
                     target: Expression::Value(Value::Integer(1))
                 },
@@ -599,7 +703,7 @@ jmp lcl_var",
                 .last()
                 .and_then(|l| l.instruction()),
             Some(&Instruction {
-                ops: InstructionOperands::Jmp {
+                ops: InstructionOps::Jmp {
                     condition: None,
                     target: Expression::Value(Value::Integer(0))
                 },
@@ -628,7 +732,7 @@ jmp glb_var",
                 .last()
                 .and_then(|l| l.instruction()),
             Some(&Instruction {
-                ops: InstructionOperands::Jmp {
+                ops: InstructionOps::Jmp {
                     condition: None,
                     target: Expression::Value(Value::Integer(0))
                 },

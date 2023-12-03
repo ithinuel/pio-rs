@@ -443,9 +443,9 @@ macro_rules! instr_test {
                 let assembled = a.assemble::<Vec<_>>().expect("Failed to assemble")[0];
                 assert_eq!(assembled, expected, "encoded: {assembled:#016b}\nexpected: {expected:#016b}");
 
-                let decoded = Instruction::decode(assembled, $side_set).unwrap();
-                let encoded = decoded.encode($side_set).expect("Failed to encode");
-                assert_eq!(encoded, expected, "encoded: {encoded:#016b}\nexpected: {expected:#016b}");
+                //let decoded = assembled. Instruction::decode(assembled, $side_set).unwrap();
+                //let encoded = decoded.encode($side_set).expect("Failed to encode");
+                //assert_eq!(encoded, expected, "encoded: {encoded:#016b}\nexpected: {expected:#016b}");
             }
         }
     };

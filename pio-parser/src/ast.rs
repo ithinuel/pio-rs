@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{marker::PhantomData, ops::Range};
 
 /// The location of a token in an input.
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -49,6 +49,28 @@ pub enum Value<'i> {
     Identifier(Location, &'i str),
     Expression(Location, Box<Expression<'i>>),
 }
+impl Value<'_> {
+    pub fn resolve(
+        &self,
+        ctx: SymbolId<'i>,
+        defines: &Defines<'i>,
+        pending: &mut Vec<&'i str>,
+    ) -> Result<i32, Error<'i>> {
+        Ok(match self {
+            Value::Integer(v) => *v,
+            Value::Identifier(_, name) => resolve(ctx, name, defines, pending)?,
+            Value::Expression(_, e) => e.resolve(ctx, defines, pending)?,
+        })
+    }
+}
+impl Into<i32> for Value<'_> {
+    fn into(self) -> i32 {
+        match self {
+            Value::Integer(v) => v,
+            _ => panic!("Value can only be converted to u32 after being resolved."),
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Expression<'i> {
@@ -64,23 +86,80 @@ pub enum Expression<'i> {
     Reverse(Box<Expression<'i>>),
 }
 impl Expression<'_> {
+    pub fn resolve(
+        &self,
+        ctx: SymbolId<'i>,
+        defines: &Defines<'i>,
+        pending: &mut Vec<&'i str>,
+    ) -> Result<i32, Error<'i>> {
+        Ok(match self {
+            Expression::Value(v) => v.resolve(ctx, defines, pending)?,
+            Expression::Plus(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l.checked_add(r)
+                    .ok_or(Error::IntegerOverflow(ctx.var_name))?
+            }
+            Expression::Minus(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l.checked_sub(r)
+                    .ok_or(Error::IntegerOverflow(ctx.var_name))?
+            }
+            Expression::Multiply(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l.checked_mul(r)
+                    .ok_or(Error::IntegerOverflow(ctx.var_name))?
+            }
+            Expression::Divide(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l.checked_div(r).ok_or(Error::DivideByZero(ctx.var_name))?
+            }
+            Expression::Or(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l | r
+            }
+            Expression::And(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l & r
+            }
+            Expression::Xor(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l ^ r
+            }
+            Expression::Opposite(v) => v
+                .resolve(ctx, defines, pending)?
+                .checked_neg()
+                .ok_or(Error::IntegerOverflow(ctx.var_name))?,
+            Expression::Reverse(v) => v.resolve(ctx, defines, pending)?.reverse_bits(),
+        })
+    }
+}
+
+impl Expression<'_> {
     pub fn boxed(self) -> Box<Self> {
         Box::new(self)
     }
 }
 
+pub struct ReificationError<'i>(&'i PhantomData<()>);
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Instruction<'i> {
-    pub ops: InstructionOps<'i>,
+    pub ops: InstructionOperands<'i>,
     pub delay: Option<Expression<'i>>,
     pub side_set: Option<Value<'i>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum InstructionOps<'i> {
+pub enum InstructionOperands<'i> {
     Nop,
     Wait {
-        duration: Value<'i>,
+        polarity: Value<'i>,
         src: WaitSource<'i>,
     },
     In {
@@ -117,6 +196,56 @@ pub enum InstructionOps<'i> {
         target: SetTarget,
         value: Value<'i>,
     },
+}
+impl<'i> TryInto<pio::intermediate_repr::InstructionOperands> for InstructionOperands<'i> {
+    type Error = crate::compiler::Error<'i>;
+
+    fn try_into(self) -> Result<pio::intermediate_repr::InstructionOperands, Self::Error> {
+        use ir::InstructionOperands::*;
+        use pio::intermediate_repr as ir;
+        Ok(match self {
+            InstructionOperands::Nop => MOV {
+                destination: ir::MovDestination::Y,
+                op: ir::MovOperation::None,
+                source: ir::MovSource::Y,
+            },
+            InstructionOperands::Wait { polarity, src } => {
+                use {WaitPolarity::*, WaitSource::*};
+
+                match polarity {
+                    Value::Integer(_) => todo!(),
+                    Value::Identifier(_, _) => todo!(),
+                    Value::Expression(_, _) => todo!(),
+                }
+
+                let (source, index, relative) = todo!();
+                let polarity = todo!();
+                //match src {
+                //    WaitSource::Irq(s, r) => (),
+                //    WaitSource::Gpio(_) => todo!(),
+                //    WaitSource::Pin(_) => todo!(),
+                //};
+                WAIT {
+                    polarity,
+                    source,
+                    index,
+                    relative,
+                }
+            }
+            InstructionOperands::In { src, bit_count } => todo!(),
+            InstructionOperands::Out { target, bit_count } => todo!(),
+            InstructionOperands::Jmp { condition, target } => todo!(),
+            InstructionOperands::Push { if_full, blocking } => todo!(),
+            InstructionOperands::Pull { if_empty, blocking } => todo!(),
+            InstructionOperands::Mov { src, op, trg } => todo!(),
+            InstructionOperands::Irq {
+                modifier,
+                value,
+                relative,
+            } => todo!(),
+            InstructionOperands::Set { target, value } => todo!(),
+        })
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

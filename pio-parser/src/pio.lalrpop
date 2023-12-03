@@ -17,7 +17,7 @@ use crate::{
   Instruction,
   IrqModifier,
   JmpCondition,
-  InstructionOps,
+  InstructionOperands,
   lexer::{self, Token}
 };
 
@@ -104,21 +104,21 @@ Instruction: (Location, Instruction<'i>) = {
      <ops:BaseInstruction> <s:SideSet> <d:Delay> => (ops.0, Instruction { ops: ops.1, delay: Some(d), side_set:Some(s) })
 }
 
-BaseInstruction: (Location, InstructionOps<'i>) = {
-    <l:@L> nop <r:@R> => (Location(l..r), InstructionOps::Nop),
-    <l:@L> jmp <r:@R> <c:JmpCondition?> comma? <t:Expression> => (Location(l..r), InstructionOps::Jmp { condition: c, target: t }),
-    <l:@L> wait <r:@R> <v:Value?> <src:WaitSource> => (Location(l..r), InstructionOps::Wait { duration: v.unwrap_or(Value::Integer(1)), src }),
-    <l:@L> in_ <r:@R> <src:InSource> comma? <bit_count:Value> => (Location(l..r), InstructionOps::In { src, bit_count }),
-    <l:@L> out <r:@R> <target:OutTarget> comma? <bit_count:Value> => (Location(l..r), InstructionOps::Out { target, bit_count }),
-    <l:@L> push <r:@R> <c:iffull?> <b:Blocking?> => (Location(l..r), InstructionOps::Push { if_full: c.is_some(), blocking: b.unwrap_or(true) }),
-    <l:@L> pull <r:@R> <c:ifempty?> <b:Blocking?> => (Location(l..r), InstructionOps::Pull { if_empty: c.is_some(), blocking: b.unwrap_or(true) }),
-    <l:@L> mov <r:@R> <t:MovTarget> comma? <op:MovOp?> <s:MovSource> => (Location(l..r), InstructionOps::Mov { src: s, op, trg: t }),
-    <l:@L> irq <r:@R> <m:IrqModifier?> <v:Value> <re:rel?> => (Location(l..r), InstructionOps::Irq {
+BaseInstruction: (Location, InstructionOperands<'i>) = {
+    <l:@L> nop <r:@R> => (Location(l..r), InstructionOperands::Nop),
+    <l:@L> jmp <r:@R> <c:JmpCondition?> comma? <t:Expression> => (Location(l..r), InstructionOperands::Jmp { condition: c, target: t }),
+    <l:@L> wait <r:@R> <v:Value?> <src:WaitSource> => (Location(l..r), InstructionOperands::Wait { polarity: v.unwrap_or(Value::Integer(1)), src }),
+    <l:@L> in_ <r:@R> <src:InSource> comma? <bit_count:Value> => (Location(l..r), InstructionOperands::In { src, bit_count }),
+    <l:@L> out <r:@R> <target:OutTarget> comma? <bit_count:Value> => (Location(l..r), InstructionOperands::Out { target, bit_count }),
+    <l:@L> push <r:@R> <c:iffull?> <b:Blocking?> => (Location(l..r), InstructionOperands::Push { if_full: c.is_some(), blocking: b.unwrap_or(true) }),
+    <l:@L> pull <r:@R> <c:ifempty?> <b:Blocking?> => (Location(l..r), InstructionOperands::Pull { if_empty: c.is_some(), blocking: b.unwrap_or(true) }),
+    <l:@L> mov <r:@R> <t:MovTarget> comma? <op:MovOp?> <s:MovSource> => (Location(l..r), InstructionOperands::Mov { src: s, op, trg: t }),
+    <l:@L> irq <r:@R> <m:IrqModifier?> <v:Value> <re:rel?> => (Location(l..r), InstructionOperands::Irq {
         modifier: m.unwrap_or(IrqModifier::Set),
         value: v,
         relative: re.is_some()
     }),
-    <l:@L> set <r:@R> <t:SetTarget> comma? <v:Value> => (Location(l..r), InstructionOps::Set { target: t, value: v })
+    <l:@L> set <r:@R> <t:SetTarget> comma? <v:Value> => (Location(l..r), InstructionOperands::Set { target: t, value: v })
 }
 
 SideSet: Value<'i> = side <Value>;
@@ -126,7 +126,7 @@ SideSet: Value<'i> = side <Value>;
 Delay: Expression<'i> = lbracket <Expression> rbracket;
 
 WaitSource: WaitSource<'i> = {
-    irq comma? <v:Value> <r:rel?> => WaitSource::Irq(v, r.is_some()),
+    irq comma? <v:Value> comma? <r:rel?> => WaitSource::Irq(v, r.is_some()),
     gpio comma? <Value> => WaitSource::Gpio(<>),
     pin comma? <Value> => WaitSource::Pin(<>)
 }

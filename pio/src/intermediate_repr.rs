@@ -113,6 +113,18 @@ pub enum SetDestination {
     // RESERVED = 0b110,
     // RESERVED = 0b111,
 }
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive)]
+pub enum Operator {
+    Jmp = 0b000,
+    Wait = 0b001,
+    In = 0b010,
+    Out = 0b011,
+    PushPull = 0b100,
+    Mov = 0b101,
+    Irq = 0b110,
+    Set = 0b111,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperandError {
@@ -173,19 +185,49 @@ pub enum InstructionOperands {
         data: u8,
     },
 }
-impl InstructionOperands {
-    const fn discrim(&self) -> u16 {
-        match self {
-            InstructionOperands::JMP { .. } => 0b000,
-            InstructionOperands::WAIT { .. } => 0b001,
-            InstructionOperands::IN { .. } => 0b010,
-            InstructionOperands::OUT { .. } => 0b011,
-            InstructionOperands::PUSH { .. } => 0b100,
-            InstructionOperands::PULL { .. } => 0b100,
-            InstructionOperands::MOV { .. } => 0b101,
-            InstructionOperands::IRQ { .. } => 0b110,
-            InstructionOperands::SET { .. } => 0b111,
+
+macro_rules! decode_error {
+    ($tyname:ident: $($inner:ident),*) => {
+        #[derive(Debug, PartialEq, Eq)]
+        pub enum $tyname {
+            UnsupportedIrqFlag(u8),
+            $(
+                $inner (num_enum::TryFromPrimitiveError<$inner>)
+             ),*
         }
+
+        $(
+            impl From<num_enum::TryFromPrimitiveError<$inner>> for $tyname {
+                fn from(value: num_enum::TryFromPrimitiveError<$inner>) -> Self {
+                    Self::$inner (value)
+                }
+            }
+         )*
+    };
+}
+decode_error!{ DecodeError:
+    WaitPolarity, WaitSource,
+    JmpCondition, InSource, OutDestination,
+    MovDestination, MovOperation, MovSource,
+    SetDestination,
+    Operator }
+
+impl InstructionOperands {
+    const fn operator(&self) -> Operator {
+        match self {
+            InstructionOperands::JMP { .. } => Operator::Jmp,
+            InstructionOperands::WAIT { .. } => Operator::Wait,
+            InstructionOperands::IN { .. } => Operator::In,
+            InstructionOperands::OUT { .. } => Operator::Out,
+            InstructionOperands::PUSH { .. } => Operator::PushPull,
+            InstructionOperands::PULL { .. } => Operator::PushPull,
+            InstructionOperands::MOV { .. } => Operator::Mov,
+            InstructionOperands::IRQ { .. } => Operator::Irq,
+            InstructionOperands::SET { .. } => Operator::Set,
+        }
+    }
+    const fn discrim(&self) -> u16 {
+        self.operator() as u16
     }
 
     const fn operands(&self) -> Result<(u8, u8), OperandError> {
@@ -258,105 +300,81 @@ impl InstructionOperands {
 
     /// Decode operands from binary representation.
     /// Note that this output does not take side set and delay into account.
-    pub fn decode(instruction: u16) -> Option<Self> {
-        let discrim = instruction >> 13;
+    pub fn decode(instruction: u16) -> Result<Self, DecodeError> {
         let o0 = ((instruction >> 5) & 0b111) as u8;
         let o1 = (instruction & 0b11111) as u8;
-        match discrim {
-            0b000 => JmpCondition::try_from(o0)
-                .ok()
-                .map(|condition| InstructionOperands::JMP {
-                    condition,
-                    address: o1,
-                }),
-            0b001 => {
-                WaitSource::try_from(o0 & 0b011)
-                    .ok()
-                    .map(|source| InstructionOperands::WAIT {
-                        polarity: (o0 >> 2).try_into().unwrap(),
-                        source,
-                        index: if source == WaitSource::IRQ {
-                            o1 & 0b00111
-                        } else {
-                            o1
-                        },
-                        relative: source == WaitSource::IRQ && (o1 & 0b10000) != 0,
-                    })
-            }
-            0b010 => InSource::try_from(o0)
-                .ok()
-                .map(|source| InstructionOperands::IN {
+
+        let operator = Operator::try_from((instruction >> 13) as u8)?;
+        Ok(match operator {
+            Operator::Jmp => InstructionOperands::JMP {
+                condition: JmpCondition::try_from(o0)?,
+                address: o1,
+            },
+            Operator::Wait => {
+                let source = WaitSource::try_from(o0 & 0b011)?;
+                InstructionOperands::WAIT {
+                    polarity: (o0 >> 2).try_into()?,
                     source,
-                    bit_count: o1,
-                }),
-            0b011 => {
-                OutDestination::try_from(o0)
-                    .ok()
-                    .map(|destination| InstructionOperands::OUT {
-                        destination,
-                        bit_count: o1,
-                    })
+                    index: if source == WaitSource::IRQ {
+                        o1 & 0b00111
+                    } else {
+                        o1
+                    },
+                    relative: source == WaitSource::IRQ && (o1 & 0b10000) != 0,
+                }
             }
-            0b100 => {
+            Operator::In => InstructionOperands::IN {
+                source: o0.try_into()?,
+                bit_count: o1,
+            },
+            Operator::Out => InstructionOperands::OUT {
+                destination: o0.try_into()?,
+                bit_count: o1,
+            },
+            Operator::PushPull => {
                 let if_flag = o0 & 0b010 != 0;
                 let block = o0 & 0b001 != 0;
-                if o1 != 0 {
-                    None
-                } else if o0 & 0b100 == 0 {
-                    Some(InstructionOperands::PUSH {
+                if o0 & 0b100 == 0 {
+                    InstructionOperands::PUSH {
                         if_full: if_flag,
                         block,
-                    })
+                    }
                 } else {
-                    Some(InstructionOperands::PULL {
+                    InstructionOperands::PULL {
                         if_empty: if_flag,
                         block,
-                    })
+                    }
                 }
             }
-            0b101 => match (
-                MovDestination::try_from(o0).ok(),
-                MovOperation::try_from((o1 >> 3) & 0b11).ok(),
-                MovSource::try_from(o1 & 0b111).ok(),
-            ) {
-                (Some(destination), Some(op), Some(source)) => Some(InstructionOperands::MOV {
-                    destination,
-                    op,
-                    source,
-                }),
-                _ => None,
+            Operator::Mov => InstructionOperands::MOV {
+                destination: MovDestination::try_from(o0)?,
+                op: MovOperation::try_from((o1 >> 3) & 0b11)?,
+                source: MovSource::try_from(o1 & 0b111)?,
             },
-            0b110 => {
-                if o0 & 0b100 == 0 {
-                    Some(InstructionOperands::IRQ {
-                        clear: o0 & 0b010 != 0,
-                        wait: o0 & 0b001 != 0,
-                        index: o1 & 0b01111,
-                        relative: o1 & 0b10000 != 0,
-                    })
-                } else {
-                    None
-                }
-            }
-            0b111 => {
-                SetDestination::try_from(o0)
-                    .ok()
-                    .map(|destination| InstructionOperands::SET {
-                        destination,
-                        data: o1,
-                    })
-            }
-            _ => None,
-        }
+            Operator::Irq if o0 & 0b100 == 0 => InstructionOperands::IRQ {
+                clear: o0 & 0b010 != 0,
+                wait: o0 & 0b001 != 0,
+                index: o1 & 0b01111,
+                relative: o1 & 0b10000 != 0,
+            },
+            Operator::Irq => return Err(DecodeError::UnsupportedIrqFlag(o0 & 0b100).into()),
+            Operator::Set => InstructionOperands::SET {
+                destination: SetDestination::try_from(o0)?,
+                data: o1,
+            },
+        })
     }
 }
 
 /// A PIO instruction.
+///
+/// The fields are public and no validation is required on instanciation because validation is done
+/// on encoding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Instruction {
-    pub(crate) operands: InstructionOperands,
-    pub(crate) delay: u8,
-    pub(crate) side_set: Option<u8>,
+    pub operands: InstructionOperands,
+    pub delay: u8,
+    pub side_set: Option<u8>,
 }
 impl Instruction {
     /// Encode a single instruction.
@@ -394,31 +412,6 @@ impl Instruction {
         data |= ((self.delay as u16) | side_set) << 8;
 
         Ok(data)
-    }
-
-    /// Decode a single instruction.
-    pub fn decode(instruction: u16, side_set: SideSet) -> Option<Instruction> {
-        InstructionOperands::decode(instruction).map(|operands| {
-            let data = ((instruction >> 8) & 0b11111) as u8;
-
-            let delay = data & ((1 << (5 - side_set.bits)) - 1);
-
-            let has_side_set = side_set.bits > 0 && (!side_set.opt || data & 0b10000 > 0);
-            let side_set_data =
-                (data & if side_set.opt { 0b01111 } else { 0b11111 }) >> (5 - side_set.bits);
-
-            let side_set = if has_side_set {
-                Some(side_set_data)
-            } else {
-                None
-            };
-
-            Instruction {
-                operands,
-                delay,
-                side_set,
-            }
-        })
     }
 }
 

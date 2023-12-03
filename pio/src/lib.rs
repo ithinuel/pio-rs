@@ -46,6 +46,7 @@ mod storage;
 
 pub use assembler::*;
 pub use intermediate_repr::*;
+use storage::Storage;
 
 /// Data for 'side' set instruction parameters.
 #[derive(Debug, Clone, Copy)]
@@ -152,6 +153,33 @@ impl<T> Program<T> {
     /// Get the SideSet parameters for this program.
     pub fn side_set(&self) -> &SideSet {
         &self.side_set
+    }
+}
+
+impl<T: Storage<u16>> Program<T> {
+    /// Decode a single instruction.
+    pub fn decode(&self, instruction: u16, side_set: SideSet) -> Result<Instruction, DecodeError> {
+        InstructionOperands::decode(instruction).map(|operands| {
+            let data = ((instruction >> 8) & 0b11111) as u8;
+
+            let delay = data & ((1 << (5 - side_set.bits)) - 1);
+
+            let has_side_set = side_set.bits > 0 && (!side_set.opt || data & 0b10000 > 0);
+            let side_set_data =
+                (data & if side_set.opt { 0b01111 } else { 0b11111 }) >> (5 - side_set.bits);
+
+            let side_set = if has_side_set {
+                Some(side_set_data)
+            } else {
+                None
+            };
+
+            Instruction {
+                operands,
+                delay,
+                side_set,
+            }
+        })
     }
 }
 

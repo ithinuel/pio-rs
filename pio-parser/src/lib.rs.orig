@@ -6,8 +6,12 @@ mod lexer;
 mod parser;
 
 pub use ast::*;
+<<<<<<< Updated upstream
 use compiler::ParsedProgram;
+mod compiler;
+=======
 pub mod compiler;
+>>>>>>> Stashed changes
 
 #[derive(thiserror::Error, Debug, PartialEq)]
 pub enum Error<'i> {
