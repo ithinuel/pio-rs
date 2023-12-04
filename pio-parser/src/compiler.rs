@@ -61,6 +61,83 @@ impl<'i> From<(&'i str, &'i str)> for SymbolId<'i> {
 ///
 /// empty program name is the special name for global scope.
 type Defines<'i> = HashMap<SymbolId<'i>, (SymbolDef<'i>, Expression<'i>)>;
+trait Resolve<'i> {
+    fn resolve(
+        &self,
+        ctx: SymbolId<'i>,
+        defines: &Defines<'i>,
+        pending: &mut Vec<&'i str>,
+    ) -> Result<i32, Error<'i>>;
+}
+impl<'i> Resolve<'i> for Value<'i> {
+    fn resolve(
+        &self,
+        ctx: SymbolId<'i>,
+        defines: &Defines<'i>,
+        pending: &mut Vec<&'i str>,
+    ) -> Result<i32, Error<'i>> {
+        Ok(match self {
+            Value::Integer(v) => *v,
+            Value::Identifier(_, name) => resolve(ctx, name, defines, pending)?,
+            Value::Expression(_, e) => e.resolve(ctx, defines, pending)?,
+        })
+    }
+}
+impl<'i> Resolve<'i> for Expression<'i> {
+    fn resolve(
+        &self,
+        ctx: SymbolId<'i>,
+        defines: &Defines<'i>,
+        pending: &mut Vec<&'i str>,
+    ) -> Result<i32, Error<'i>> {
+        Ok(match self {
+            Expression::Value(v) => v.resolve(ctx, defines, pending)?,
+            Expression::Plus(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l.checked_add(r)
+                    .ok_or(Error::IntegerOverflow(ctx.var_name))?
+            }
+            Expression::Minus(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l.checked_sub(r)
+                    .ok_or(Error::IntegerOverflow(ctx.var_name))?
+            }
+            Expression::Multiply(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l.checked_mul(r)
+                    .ok_or(Error::IntegerOverflow(ctx.var_name))?
+            }
+            Expression::Divide(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l.checked_div(r).ok_or(Error::DivideByZero(ctx.var_name))?
+            }
+            Expression::Or(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l | r
+            }
+            Expression::And(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l & r
+            }
+            Expression::Xor(l, r) => {
+                let l = l.resolve(ctx, defines, pending)?;
+                let r = r.resolve(ctx, defines, pending)?;
+                l ^ r
+            }
+            Expression::Opposite(v) => v
+                .resolve(ctx, defines, pending)?
+                .checked_neg()
+                .ok_or(Error::IntegerOverflow(ctx.var_name))?,
+            Expression::Reverse(v) => v.resolve(ctx, defines, pending)?.reverse_bits(),
+        })
+    }
+}
 
 fn resolve<'i>(
     ctx: SymbolId<'i>,
@@ -481,7 +558,7 @@ impl<'i> Compiler<'i> {
     pub fn assemble(
         v: File<'i, ParsedProgram<'i>>,
     ) -> Result<File<'i, AssembledProgram>, Error<'i>> {
-        for parsed_program in v.programs {
+        for _parsed_program in v.programs {
             todo!()
         }
 

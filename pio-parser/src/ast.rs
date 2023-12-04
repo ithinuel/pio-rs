@@ -1,5 +1,7 @@
 use std::{marker::PhantomData, ops::Range};
 
+use crate::compiler::Error;
+
 /// The location of a token in an input.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Location(pub Range<usize>);
@@ -49,20 +51,6 @@ pub enum Value<'i> {
     Identifier(Location, &'i str),
     Expression(Location, Box<Expression<'i>>),
 }
-impl Value<'_> {
-    pub fn resolve(
-        &self,
-        ctx: SymbolId<'i>,
-        defines: &Defines<'i>,
-        pending: &mut Vec<&'i str>,
-    ) -> Result<i32, Error<'i>> {
-        Ok(match self {
-            Value::Integer(v) => *v,
-            Value::Identifier(_, name) => resolve(ctx, name, defines, pending)?,
-            Value::Expression(_, e) => e.resolve(ctx, defines, pending)?,
-        })
-    }
-}
 impl Into<i32> for Value<'_> {
     fn into(self) -> i32 {
         match self {
@@ -84,61 +72,6 @@ pub enum Expression<'i> {
     Xor(Box<Expression<'i>>, Box<Expression<'i>>),
     Opposite(Box<Expression<'i>>),
     Reverse(Box<Expression<'i>>),
-}
-impl Expression<'_> {
-    pub fn resolve(
-        &self,
-        ctx: SymbolId<'i>,
-        defines: &Defines<'i>,
-        pending: &mut Vec<&'i str>,
-    ) -> Result<i32, Error<'i>> {
-        Ok(match self {
-            Expression::Value(v) => v.resolve(ctx, defines, pending)?,
-            Expression::Plus(l, r) => {
-                let l = l.resolve(ctx, defines, pending)?;
-                let r = r.resolve(ctx, defines, pending)?;
-                l.checked_add(r)
-                    .ok_or(Error::IntegerOverflow(ctx.var_name))?
-            }
-            Expression::Minus(l, r) => {
-                let l = l.resolve(ctx, defines, pending)?;
-                let r = r.resolve(ctx, defines, pending)?;
-                l.checked_sub(r)
-                    .ok_or(Error::IntegerOverflow(ctx.var_name))?
-            }
-            Expression::Multiply(l, r) => {
-                let l = l.resolve(ctx, defines, pending)?;
-                let r = r.resolve(ctx, defines, pending)?;
-                l.checked_mul(r)
-                    .ok_or(Error::IntegerOverflow(ctx.var_name))?
-            }
-            Expression::Divide(l, r) => {
-                let l = l.resolve(ctx, defines, pending)?;
-                let r = r.resolve(ctx, defines, pending)?;
-                l.checked_div(r).ok_or(Error::DivideByZero(ctx.var_name))?
-            }
-            Expression::Or(l, r) => {
-                let l = l.resolve(ctx, defines, pending)?;
-                let r = r.resolve(ctx, defines, pending)?;
-                l | r
-            }
-            Expression::And(l, r) => {
-                let l = l.resolve(ctx, defines, pending)?;
-                let r = r.resolve(ctx, defines, pending)?;
-                l & r
-            }
-            Expression::Xor(l, r) => {
-                let l = l.resolve(ctx, defines, pending)?;
-                let r = r.resolve(ctx, defines, pending)?;
-                l ^ r
-            }
-            Expression::Opposite(v) => v
-                .resolve(ctx, defines, pending)?
-                .checked_neg()
-                .ok_or(Error::IntegerOverflow(ctx.var_name))?,
-            Expression::Reverse(v) => v.resolve(ctx, defines, pending)?.reverse_bits(),
-        })
-    }
 }
 
 impl Expression<'_> {
@@ -180,7 +113,7 @@ pub enum InstructionOperands<'i> {
     },
     Pull {
         if_empty: bool,
-        blocking: bool,
+        block: bool,
     },
     Mov {
         src: MovSource,
@@ -198,11 +131,11 @@ pub enum InstructionOperands<'i> {
     },
 }
 impl<'i> TryInto<pio::intermediate_repr::InstructionOperands> for InstructionOperands<'i> {
-    type Error = crate::compiler::Error<'i>;
+    type Error = Error<'i>;
 
     fn try_into(self) -> Result<pio::intermediate_repr::InstructionOperands, Self::Error> {
-        use ir::InstructionOperands::*;
-        use pio::intermediate_repr as ir;
+        use pio::intermediate_repr::{self as ir, InstructionOperands::*};
+
         Ok(match self {
             InstructionOperands::Nop => MOV {
                 destination: ir::MovDestination::Y,
@@ -210,21 +143,33 @@ impl<'i> TryInto<pio::intermediate_repr::InstructionOperands> for InstructionOpe
                 source: ir::MovSource::Y,
             },
             InstructionOperands::Wait { polarity, src } => {
-                use {WaitPolarity::*, WaitSource::*};
+                let polarity = match polarity.into() {
+                    0 => ir::WaitPolarity::Zero,
+                    1 => ir::WaitPolarity::One,
+                    _ => {
+                        return Err(Error::IntegerOverflow(
+                            "wait polarity must be either 0 or 1",
+                        ))
+                    }
+                };
 
-                match polarity {
-                    Value::Integer(_) => todo!(),
-                    Value::Identifier(_, _) => todo!(),
-                    Value::Expression(_, _) => todo!(),
-                }
+                let pin_or_gpio = |index, src| match index {
+                    i @ 0..=31 => Ok((src, i as u8, false)),
+                    _ => Err(Error::IntegerOverflow(
+                        "wait gpio index must be in [0; 31].",
+                    )),
+                };
 
-                let (source, index, relative) = todo!();
-                let polarity = todo!();
-                //match src {
-                //    WaitSource::Irq(s, r) => (),
-                //    WaitSource::Gpio(_) => todo!(),
-                //    WaitSource::Pin(_) => todo!(),
-                //};
+                let (source, index, relative) = match src {
+                    WaitSource::Irq(s, r) => match s.into() {
+                        i @ 0..=7 => (ir::WaitSource::IRQ, i as u8, r),
+                        _ => {
+                            return Err(Error::IntegerOverflow("wait irq index must be in [0; 7]."))
+                        }
+                    },
+                    WaitSource::Gpio(index) => pin_or_gpio(index.into(), ir::WaitSource::GPIO)?,
+                    WaitSource::Pin(index) => pin_or_gpio(index.into(), ir::WaitSource::PIN)?,
+                };
                 WAIT {
                     polarity,
                     source,
@@ -232,18 +177,19 @@ impl<'i> TryInto<pio::intermediate_repr::InstructionOperands> for InstructionOpe
                     relative,
                 }
             }
-            InstructionOperands::In { src, bit_count } => todo!(),
-            InstructionOperands::Out { target, bit_count } => todo!(),
-            InstructionOperands::Jmp { condition, target } => todo!(),
-            InstructionOperands::Push { if_full, blocking } => todo!(),
-            InstructionOperands::Pull { if_empty, blocking } => todo!(),
-            InstructionOperands::Mov { src, op, trg } => todo!(),
-            InstructionOperands::Irq {
-                modifier,
-                value,
-                relative,
-            } => todo!(),
-            InstructionOperands::Set { target, value } => todo!(),
+            //InstructionOperands::In { src, bit_count } => todo!(),
+            //InstructionOperands::Out { target, bit_count } => todo!(),
+            //InstructionOperands::Jmp { condition, target } => todo!(),
+            InstructionOperands::Push { if_full, blocking } => PUSH { if_full, blocking },
+            InstructionOperands::Pull { if_empty, block } => PULL { if_empty, block },
+            //InstructionOperands::Mov { src, op, trg } => todo!(),
+            //InstructionOperands::Irq {
+            //    modifier,
+            //    value,
+            //    relative,
+            //} => todo!(),
+            //InstructionOperands::Set { target, value } => todo!(),
+            _ => todo!(),
         })
     }
 }

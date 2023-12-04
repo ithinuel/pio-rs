@@ -1,5 +1,5 @@
 #![allow(clippy::all)]
-include!(concat!(env!("OUT_DIR"), "/pio.rs"));
+include!(concat!(env!("OUT_DIR"), "/grammar.rs"));
 
 pub type Error<'i> = lalrpop_util::ParseError<usize, lexer::Token<'i>, lexer::Error>;
 
@@ -300,7 +300,7 @@ Yes indeed.
         use crate::{Expression::*, Instruction, InstructionOperands, Line::*, Value::*};
 
         let forty_two = Some(Value(Integer(42)));
-        let twelve = Some(Integer(42));
+        let twelve = Some(Integer(12));
         let nop = |delay, side_set| {
             Instruction(
                 Location(0..3),
@@ -315,9 +315,9 @@ Yes indeed.
         assert(&[
             ("NOP", nop(None, None)),
             ("nop", nop(None, None)),
-            ("nop [42]", nop(forty_two, None)),
-            ("nop side 12", nop(None, twelve)),
-            ("nop side 12 [42]", nop(forty_two, twelve)),
+            ("nop [42]", nop(forty_two.clone(), None)),
+            ("nop side 12", nop(None, twelve.clone())),
+            ("nop side 12 [42]", nop(forty_two.clone(), twelve.clone())),
             ("nop [42] side 12", nop(forty_two, twelve)),
         ]);
     }
@@ -341,16 +341,19 @@ Yes indeed.
         let value = [("1", Integer(1)), ("26", Integer(26))];
         let relative = ["", " rel"];
 
-        let irq = itertools::iproduct!(polarity, COMMA, source, COMMA, value, COMMA, relative)
-            .filter(|(p, _, s, _, v, c, _r)| false)
-            .map(|(p, c1, s, c2, v, c3, r)| {
-                let input = format!("wait {p.0}{c1} {s}{c2} {v.0}{c3}{r}");
+        let test_set = itertools::iproduct!(polarity, COMMA, source, COMMA, value, COMMA, relative)
+            .filter(|(_, _, s, _, _, c, r)| {
+                ((*s != "irq") && c.is_empty() && r.is_empty())
+                    || (*s == "irq" && (c.is_empty() || !r.is_empty()))
+            })
+            .map(|((p, ep), c1, s, c2, (v, ev), c3, r)| {
+                let input = format!("wait {p}{c1} {s}{c2} {v}{c3}{r}");
                 let expected = (
-                    p.1,
+                    ep,
                     match s {
-                        "pin" => Pin(v.1),
-                        "gpio" => Gpio(v.1),
-                        "irq" => Irq(v.1, !r.is_empty()),
+                        "pin" => Pin(ev),
+                        "gpio" => Gpio(ev),
+                        "irq" => Irq(ev, !r.is_empty()),
                         _ => unreachable!(),
                     },
                 );
@@ -505,7 +508,7 @@ Yes indeed.
             let input = format!("pull{}{}", i.0, b.0);
             let expected = instr(Pull {
                 if_empty: i.1,
-                blocking: b.1,
+                block: b.1,
             });
             (input, expected)
         });

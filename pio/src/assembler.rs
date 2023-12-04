@@ -274,10 +274,10 @@ impl<T: WritableStorage<InstructionOrWord>> Assembler<T> {
 
     instr!(
         /// Emit a `push` instruction with `if_full` and `block`.
-        push(self, if_full: bool, block: bool) {
+        push(self, if_full: bool, blocking: bool) {
             InstructionOperands::PUSH {
                 if_full,
-                block,
+                blocking,
             }
         }
     );

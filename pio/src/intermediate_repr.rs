@@ -163,7 +163,7 @@ pub enum InstructionOperands {
     },
     PUSH {
         if_full: bool,
-        block: bool,
+        blocking: bool,
     },
     PULL {
         if_empty: bool,
@@ -205,12 +205,12 @@ macro_rules! decode_error {
          )*
     };
 }
-decode_error!{ DecodeError:
-    WaitPolarity, WaitSource,
-    JmpCondition, InSource, OutDestination,
-    MovDestination, MovOperation, MovSource,
-    SetDestination,
-    Operator }
+decode_error! { DecodeError:
+WaitPolarity, WaitSource,
+JmpCondition, InSource, OutDestination,
+MovDestination, MovOperation, MovSource,
+SetDestination,
+Operator }
 
 impl InstructionOperands {
     const fn operator(&self) -> Operator {
@@ -255,9 +255,10 @@ impl InstructionOperands {
                 destination,
                 bit_count,
             } => (destination as u8, bit_count & 0b11111),
-            InstructionOperands::PUSH { if_full, block } => {
-                ((if_full as u8) << 1 | (block as u8), 0)
-            }
+            InstructionOperands::PUSH {
+                if_full,
+                blocking: block,
+            } => ((if_full as u8) << 1 | (block as u8), 0),
             InstructionOperands::PULL { if_empty, block } => {
                 (1 << 2 | (if_empty as u8) << 1 | (block as u8), 0)
             }
@@ -337,7 +338,7 @@ impl InstructionOperands {
                 if o0 & 0b100 == 0 {
                     InstructionOperands::PUSH {
                         if_full: if_flag,
-                        block,
+                        blocking: block,
                     }
                 } else {
                     InstructionOperands::PULL {
