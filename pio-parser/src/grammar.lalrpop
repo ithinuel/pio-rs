@@ -138,7 +138,6 @@ InSource: InSource = {
     null => InSource::Null,
     isr => InSource::Isr,
     osr => InSource::Osr,
-    status => InSource::Status,
 }
 
 OutTarget: OutTarget = {

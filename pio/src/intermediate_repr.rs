@@ -167,7 +167,7 @@ pub enum InstructionOperands {
     },
     PULL {
         if_empty: bool,
-        block: bool,
+        blocking: bool,
     },
     MOV {
         destination: MovDestination,
@@ -255,12 +255,11 @@ impl InstructionOperands {
                 destination,
                 bit_count,
             } => (destination as u8, bit_count & 0b11111),
-            InstructionOperands::PUSH {
-                if_full,
-                blocking: block,
-            } => ((if_full as u8) << 1 | (block as u8), 0),
-            InstructionOperands::PULL { if_empty, block } => {
-                (1 << 2 | (if_empty as u8) << 1 | (block as u8), 0)
+            InstructionOperands::PUSH { if_full, blocking } => {
+                ((if_full as u8) << 1 | (blocking as u8), 0)
+            }
+            InstructionOperands::PULL { if_empty, blocking } => {
+                (1 << 2 | (if_empty as u8) << 1 | (blocking as u8), 0)
             }
             InstructionOperands::MOV {
                 destination,
@@ -343,7 +342,7 @@ impl InstructionOperands {
                 } else {
                     InstructionOperands::PULL {
                         if_empty: if_flag,
-                        block,
+                        blocking: block,
                     }
                 }
             }

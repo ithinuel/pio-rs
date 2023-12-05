@@ -375,7 +375,6 @@ Yes indeed.
             ("null", Null),
             ("isr", Isr),
             ("osr", Osr),
-            ("status", Status),
         ];
 
         let test_set = generate_in_and_out_test_set("in", src, |source, bit_count| {
@@ -508,7 +507,7 @@ Yes indeed.
             let input = format!("pull{}{}", i.0, b.0);
             let expected = instr(Pull {
                 if_empty: i.1,
-                block: b.1,
+                blocking: b.1,
             });
             (input, expected)
         });

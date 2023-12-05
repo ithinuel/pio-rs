@@ -34,7 +34,6 @@ pub enum Error<'i> {
     DivideByZero(&'i str),
     #[error("Integer overflow detected when computing `{0}`")]
     IntegerOverflow(&'i str),
-
     #[error("Circular dependency to `{1}` detected while computing `{0}`")]
     CircularDependency(&'i str, &'i str),
     #[error("Undefined `{1}` symbol used while computing `{0}`")]
@@ -44,9 +43,9 @@ pub enum Error<'i> {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct SymbolId<'i> {
-    prog_name: &'i str,
-    var_name: &'i str,
+pub(crate) struct SymbolId<'i> {
+    pub prog_name: &'i str,
+    pub var_name: &'i str,
 }
 impl<'i> From<(&'i str, &'i str)> for SymbolId<'i> {
     fn from((prog_name, var_name): (&'i str, &'i str)) -> Self {
@@ -60,191 +59,14 @@ impl<'i> From<(&'i str, &'i str)> for SymbolId<'i> {
 /// Val: (name, value)
 ///
 /// empty program name is the special name for global scope.
-type Defines<'i> = HashMap<SymbolId<'i>, (SymbolDef<'i>, Expression<'i>)>;
-trait Resolve<'i> {
+pub(crate) type Defines<'i> = HashMap<SymbolId<'i>, (SymbolDef<'i>, Expression<'i>)>;
+pub(crate) trait Resolve<'i> {
     fn resolve(
         &self,
         ctx: SymbolId<'i>,
         defines: &Defines<'i>,
         pending: &mut Vec<&'i str>,
     ) -> Result<i32, Error<'i>>;
-}
-impl<'i> Resolve<'i> for Value<'i> {
-    fn resolve(
-        &self,
-        ctx: SymbolId<'i>,
-        defines: &Defines<'i>,
-        pending: &mut Vec<&'i str>,
-    ) -> Result<i32, Error<'i>> {
-        Ok(match self {
-            Value::Integer(v) => *v,
-            Value::Identifier(_, name) => resolve(ctx, name, defines, pending)?,
-            Value::Expression(_, e) => e.resolve(ctx, defines, pending)?,
-        })
-    }
-}
-impl<'i> Resolve<'i> for Expression<'i> {
-    fn resolve(
-        &self,
-        ctx: SymbolId<'i>,
-        defines: &Defines<'i>,
-        pending: &mut Vec<&'i str>,
-    ) -> Result<i32, Error<'i>> {
-        Ok(match self {
-            Expression::Value(v) => v.resolve(ctx, defines, pending)?,
-            Expression::Plus(l, r) => {
-                let l = l.resolve(ctx, defines, pending)?;
-                let r = r.resolve(ctx, defines, pending)?;
-                l.checked_add(r)
-                    .ok_or(Error::IntegerOverflow(ctx.var_name))?
-            }
-            Expression::Minus(l, r) => {
-                let l = l.resolve(ctx, defines, pending)?;
-                let r = r.resolve(ctx, defines, pending)?;
-                l.checked_sub(r)
-                    .ok_or(Error::IntegerOverflow(ctx.var_name))?
-            }
-            Expression::Multiply(l, r) => {
-                let l = l.resolve(ctx, defines, pending)?;
-                let r = r.resolve(ctx, defines, pending)?;
-                l.checked_mul(r)
-                    .ok_or(Error::IntegerOverflow(ctx.var_name))?
-            }
-            Expression::Divide(l, r) => {
-                let l = l.resolve(ctx, defines, pending)?;
-                let r = r.resolve(ctx, defines, pending)?;
-                l.checked_div(r).ok_or(Error::DivideByZero(ctx.var_name))?
-            }
-            Expression::Or(l, r) => {
-                let l = l.resolve(ctx, defines, pending)?;
-                let r = r.resolve(ctx, defines, pending)?;
-                l | r
-            }
-            Expression::And(l, r) => {
-                let l = l.resolve(ctx, defines, pending)?;
-                let r = r.resolve(ctx, defines, pending)?;
-                l & r
-            }
-            Expression::Xor(l, r) => {
-                let l = l.resolve(ctx, defines, pending)?;
-                let r = r.resolve(ctx, defines, pending)?;
-                l ^ r
-            }
-            Expression::Opposite(v) => v
-                .resolve(ctx, defines, pending)?
-                .checked_neg()
-                .ok_or(Error::IntegerOverflow(ctx.var_name))?,
-            Expression::Reverse(v) => v.resolve(ctx, defines, pending)?.reverse_bits(),
-        })
-    }
-}
-
-fn resolve<'i>(
-    ctx: SymbolId<'i>,
-    var_name: &'i str,
-    defines: &Defines<'i>,
-    pending: &mut Vec<&'i str>,
-) -> Result<i32, Error<'i>> {
-    if pending.contains(&var_name) {
-        return Err(Error::CircularDependency(ctx.var_name, var_name));
-    }
-    pending.push(var_name);
-
-    let (_, v) = defines
-        .get(&(ctx.prog_name, var_name).into())
-        .or_else(|| defines.get(&("", var_name).into()))
-        .ok_or(Error::UndefinedSymbol(ctx.var_name, var_name))?;
-    let v = v.resolve(SymbolId { var_name, ..ctx }, defines, pending)?;
-
-    pending.pop();
-    Ok(v)
-}
-
-impl<'i> Instruction<'i> {
-    fn reify(
-        &mut self,
-        prog_name: &'i str,
-        defines: &Defines<'i>,
-    ) -> Result<pio::Instruction, Error<'i>> {
-        let operands = self.ops.clone().try_into()?;
-
-        let mut pending = Vec::new();
-        let delay = if let Some(delay) = self.delay.take() {
-            delay
-                .resolve(
-                    SymbolId {
-                        prog_name,
-                        var_name: "delay",
-                    },
-                    defines,
-                    &mut pending,
-                )?
-                .try_into()
-                .map_err(|_| Error::IntegerOutOfRange)?
-        } else {
-            0
-        };
-        let side_set = if let Some(side_set) = self.side_set.take() {
-            Some(
-                side_set
-                    .resolve(
-                        SymbolId {
-                            prog_name,
-                            var_name: "side_set",
-                        },
-                        defines,
-                        &mut pending,
-                    )?
-                    .try_into()
-                    .map_err(|_| Error::IntegerOutOfRange)?,
-            )
-        } else {
-            None
-        };
-        self.ops.reify(prog_name, defines)?;
-        Ok(pio::Instruction {
-            operands,
-            delay,
-            side_set,
-        })
-    }
-}
-
-impl<'i> InstructionOperands<'i> {
-    fn reify(&mut self, prog_name: &'i str, defines: &Defines<'i>) -> Result<(), Error<'i>> {
-        let mut pending = Vec::new();
-        match self {
-            InstructionOperands::Push { .. }
-            | InstructionOperands::Pull { .. }
-            | InstructionOperands::Nop
-            | InstructionOperands::Mov { .. } => {}
-            InstructionOperands::Out { bit_count: v, .. }
-            | InstructionOperands::In { bit_count: v, .. }
-            | InstructionOperands::Wait { polarity: v, .. }
-            | InstructionOperands::Irq { value: v, .. }
-            | InstructionOperands::Set { value: v, .. } => {
-                *v = Value::Integer(v.resolve(
-                    SymbolId {
-                        prog_name,
-                        var_name: "set",
-                    },
-                    defines,
-                    &mut pending,
-                )?);
-            }
-            InstructionOperands::Jmp { target: v, .. } => {
-                *v = Expression::Value(Value::Integer(v.resolve(
-                    SymbolId {
-                        prog_name,
-                        var_name: "jmp",
-                    },
-                    defines,
-                    &mut pending,
-                )?));
-            }
-        }
-        Ok(())
-    }
 }
 
 /// SideSet descriptor.

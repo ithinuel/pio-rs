@@ -284,10 +284,10 @@ impl<T: WritableStorage<InstructionOrWord>> Assembler<T> {
 
     instr!(
         /// Emit a `pull` instruction with `if_empty` and `block`.
-        pull(self, if_empty: bool, block: bool) {
+        pull(self, if_empty: bool, blocking: bool) {
             InstructionOperands::PULL {
                 if_empty,
-                block,
+                blocking,
             }
         }
     );
