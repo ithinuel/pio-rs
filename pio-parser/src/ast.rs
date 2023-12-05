@@ -229,7 +229,7 @@ impl<'i> Instruction<'i> {
         };
         self.ops.reify(prog_name, defines)?;
         Ok(pio::Instruction {
-            operands,
+            operands: operands.try_into()?,
             delay,
             side_set,
         })
@@ -298,7 +298,7 @@ impl<'i> InstructionOperands<'i> {
                 )?);
                 todo!()
             }
-            Self::Jmp { target: v, .. } => {
+            Self::Jmp { target: v, condition } => {
                 let me = self.clone();
                 Self::Jmp {
                     target: Expression::Value(Value::Integer(v.resolve(
@@ -309,7 +309,7 @@ impl<'i> InstructionOperands<'i> {
                         defines,
                         &mut pending,
                     )?)),
-                    ..me
+                    condition: *condition
                 }
             }
         })
