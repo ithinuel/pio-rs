@@ -549,7 +549,7 @@ impl SideSet {
     }
 
     #[doc(hidden)]
-    pub fn new_from_proc_macro(opt: bool, bits: u8, pindirs: bool) -> SideSet {
+    pub const fn new_from_proc_macro(opt: bool, bits: u8, pindirs: bool) -> SideSet {
         SideSet {
             opt,
             bits,
@@ -664,7 +664,7 @@ impl<const PROGRAM_SIZE: usize> Assembler<PROGRAM_SIZE> {
         };
 
         Program {
-            code,
+            code: Storage::Array(code),
             origin: None,
             side_set,
             wrap,
@@ -901,11 +901,64 @@ pub struct Wrap {
     pub target: u8,
 }
 
+/// Storage for the assembled program code.
+///
+/// A program either borrows a `'static` slice baked into the binary at
+/// compile time (what the `pio_asm!`/`pio_file!` macros emit, enabling
+/// `const`/`static` bindings) or owns a runtime-filled fixed-capacity
+/// buffer. Dereferences to `&[u16]`, so indexing, `len`, `iter` etc. work
+/// on both variants.
+#[derive(Debug, Clone)]
+pub enum Storage<const PROGRAM_SIZE: usize> {
+    /// Code baked into the binary at compile time.
+    Slice(&'static [u16]),
+    /// Code assembled at runtime.
+    Array(ArrayVec<u16, PROGRAM_SIZE>),
+}
+
+impl<const PROGRAM_SIZE: usize> Storage<PROGRAM_SIZE> {
+    /// The code as a slice.
+    pub fn as_slice(&self) -> &[u16] {
+        match self {
+            Storage::Slice(s) => s,
+            Storage::Array(a) => a.as_slice(),
+        }
+    }
+}
+
+impl<const PROGRAM_SIZE: usize> core::ops::Deref for Storage<PROGRAM_SIZE> {
+    type Target = [u16];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+impl<const PROGRAM_SIZE: usize> PartialEq for Storage<PROGRAM_SIZE> {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+
+impl<const PROGRAM_SIZE: usize> Eq for Storage<PROGRAM_SIZE> {}
+
+impl<const PROGRAM_SIZE: usize> From<&'static [u16]> for Storage<PROGRAM_SIZE> {
+    fn from(value: &'static [u16]) -> Self {
+        Storage::Slice(value)
+    }
+}
+
+impl<const PROGRAM_SIZE: usize> From<ArrayVec<u16, PROGRAM_SIZE>> for Storage<PROGRAM_SIZE> {
+    fn from(value: ArrayVec<u16, PROGRAM_SIZE>) -> Self {
+        Storage::Array(value)
+    }
+}
+
 /// Program ready to be executed by PIO hardware.
 #[derive(Debug)]
 pub struct Program<const PROGRAM_SIZE: usize> {
     /// Assembled program code.
-    pub code: ArrayVec<u16, PROGRAM_SIZE>,
+    pub code: Storage<PROGRAM_SIZE>,
     /// Offset at which the program must be loaded.
     ///
     /// Most often 0 if defined. This might be needed when using data based `JMP`s.

@@ -38,6 +38,12 @@ major version of `pio-parser` (and `pio`/`pio-proc` to depend on it).
 
 ### Changed
 
+- (Breaking) `pio-core`: `Program::code` is now a `Storage<PROGRAM_SIZE>`
+  enum — `Storage::Slice(&'static [u16])` for programs baked at compile
+  time (what `pio_asm!`/`pio_file!` now emit) or `Storage::Array(ArrayVec)`
+  for programs built at runtime. `Storage` derefs to `[u16]`, so reads are
+  unchanged; the slice variant makes `const`/`static` program bindings
+  possible (`const P: pio::Program<32> = pio::pio_asm!(…).program;`).
 - (Breaking) `pio_parser::ParseError` is now `pio_parser::pipeline::Error`, a
   typed error covering lexing, parsing, symbol resolution and assembling. The
   old type was `lalrpop_util::ParseError` over the previous grammar's private

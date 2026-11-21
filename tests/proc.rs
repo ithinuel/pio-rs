@@ -1,3 +1,24 @@
+// The macro output is constant data: a program (code and metadata) can be
+// bound in a const/static item, and its metadata can drive compile-time
+// checks. (The `ProgramWithDefines` wrapper keeps an unnameable defines
+// struct, so the `Program` itself is bound via field access.)
+const CONST_ASM: pio::Program<32> = pio::pio_asm!("label:", "jmp label").program;
+static STATIC_FILE: pio::Program<32> = pio::pio_file!(
+    "./tests/test.pio",
+    select_program("test2"),
+    options(max_program_size = 32)
+)
+.program;
+const _: () = assert!(matches!(CONST_ASM.version, pio::PioVersion::V0));
+const _: () = assert!(matches!(STATIC_FILE.version, pio::PioVersion::V0));
+
+#[test]
+fn const_program() {
+    assert_eq!(&*CONST_ASM.code, &[0u16]);
+    assert_eq!(&*STATIC_FILE.code, &[0, 0]);
+    assert_eq!(STATIC_FILE.origin, Some(5));
+}
+
 #[test]
 fn test_file() {
     let p = pio::pio_file!(

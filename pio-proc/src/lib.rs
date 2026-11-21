@@ -387,9 +387,9 @@ fn to_codegen(
         quote!(None)
     };
 
-    let code = &program.code;
+    let code = &*program.code;
     let code = quote!(
-        ::core::iter::IntoIterator::into_iter([#(#code),*]).collect()
+        #krate::Storage::Slice(&[#(#code),*])
     );
 
     let wrap_source = program.wrap.source;

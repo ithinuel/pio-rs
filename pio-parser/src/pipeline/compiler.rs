@@ -884,7 +884,7 @@ impl<'i> Compiler<'i> {
         };
 
         Ok(pio_core::Program {
-            code: code.into_iter().collect(),
+            code: pio_core::Storage::Array(code.into_iter().collect()),
             origin,
             side_set,
             wrap,
