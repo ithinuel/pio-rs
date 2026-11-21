@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+The parser in `pio-parser` was rewritten: `pio_parser::Parser` now drives a new
+compilation pipeline (logos lexer, lalrpop grammar, symbol-resolving compiler,
+encoder) which supports the full syntax accepted by pioasm. This requires a new
+major version of `pio-parser` (and `pio`/`pio-proc` to depend on it).
+
+### Added
+
+- `pio-parser`: new public `pipeline` module exposing the individual
+  compilation steps: `parse` (text -> AST), `compile` (AST -> programs with
+  resolved symbols) and `compile_and_assemble` (programs -> machine code),
+  plus `compile_program`/`compile_and_assemble_program` for single-program
+  input without a `.program` directive.
+- `pio-parser`: `.word` directive support.
+- `pio-parser`: directives (`.program`, `.define`, ...) are now accepted in
+  any case, as per "instruction names, keywords and directives are case
+  insensitive" in the datasheet.
+- `pio-parser`: `pio_parser::pipeline::Error::span` and
+  `pio_parser::pipeline::Error::message` locate and describe an error for
+  diagnostics.
+- `pio_file!`/`pio_asm!`: macro diagnostics now point at the offending
+  source span for compile and assemble errors too, not just parse errors.
+
+### Changed
+
+- (Breaking) `pio_parser::ParseError` is now `pio_parser::pipeline::Error`, a
+  typed error covering lexing, parsing, symbol resolution and assembling. The
+  old type was `lalrpop_util::ParseError` over the previous grammar's private
+  token type and could not represent the new failure modes.
+- (Breaking) Errors replace panics and silent mis-assembly: unknown labels and
+  illegal `mov rxfifo[..]` combinations no longer panic, and oversized
+  programs, delays, origins, side-set values and `.word` values, and unpaired
+  `.wrap`/`.wrap_target` no longer assemble into garbage.
+- (Breaking) Some inputs previously accepted are rejected: `.program`
+  directives in single-program input (`pio_asm!`), `.lang_opt` outside a
+  program, and empty programs.
+
+### Removed
+
+- `pio-proc`: removed the `lalrpop-util` dependency.
+
 ## [0.4.0] [Crates.io](https://crates.io/crates/pio-rs/0.4.0) [Github](https://github.com/rp-rs/pio-rs/releases/tag/v0.4.0)
 
 - Added support for the RP235x `WAIT JMPPIN` and `WAIT IRQ PREV/NEXT` instruction variants.
