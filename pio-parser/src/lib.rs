@@ -11,6 +11,8 @@ use pio_core::{
 
 use std::collections::HashMap;
 
+pub mod pipeline;
+
 mod parser {
     #![allow(clippy::all)]
     #![allow(unused)]

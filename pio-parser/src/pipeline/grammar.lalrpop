@@ -1,0 +1,301 @@
+// https://github.com/raspberrypi/pico-sdk/blob/master/tools/pioasm/parser.yy
+
+use crate::pipeline::{
+  Line,
+  MovOp,
+  Value,
+  InSource,
+  Location,
+  Directive,
+  MovSource,
+  MovTarget,
+  OutTarget,
+  SymbolDef,
+  SetTarget,
+  Expression,
+  WaitSource,
+  Instruction,
+  IrqModifier,
+  JmpCondition,
+  InstructionOperands,
+  lexer::{self, Token}
+};
+
+grammar<'i>;
+
+// for parsing a .pio file
+pub(crate) File = <Lines+> ;
+
+Lines: Option<Line<'i>> = {
+    <Line> newline => Some(<>),
+    <Line> EoF => Some(<>),
+    newline => None,
+    EoF => None
+}
+
+Line: Line<'i> = {
+    program <l:@L> <name:Id> <r:@R> => Line::Program { name, location: Location(l..r) },
+    Directive => Line::Directive(<>),
+    <i:Instruction> => Line::Instruction(i.0, i.1),
+    <l:Label> <i:Instruction> => Line::LabelAndInstr(l, i.1),
+    Label => Line::Label(<>),
+    <s:codeblock_start> <c:codeblock_content> => Line::CodeBlock(s, c),
+}
+
+SymbolDef: SymbolDef<'i> = {
+    <l:@L> <name:Id> <r:@R> => SymbolDef { public: false, is_label: false, name, location: Location(l..r) },
+    public <l:@L> <name:Id> <r:@R> => SymbolDef { public: true, is_label: false, name, location: Location(l..r) },
+    mul <l:@L> <name:Id> <r:@R> => SymbolDef { public: true, is_label: false, name, location: Location(l..r) },
+}
+
+Directive: Directive<'i> = {
+    <l:@L> wrap <r:@R> => Directive::Wrap(Location(l..r)),
+    <l:@L> wrap_target <r:@R> => Directive::WrapTarget(Location(l..r)),
+    <l:@L> origin <r:@R> <v:Value> => Directive::Origin(Location(l..r), v),
+    define <s:SymbolDef> <e:Expression> => Directive::Define(s, e),
+    <l:@L> side_set <r:@R> <v:Value> <o:opt?> <p:pindirs?> => Directive::SideSet {
+        location: Location(l..r),
+        value: v,
+        optional: o.is_some(),
+        pindirs: p.is_some()
+    },
+    <l:@L> word <r:@R> <v:Value> => Directive::Word(Location(l..r), v),
+    <l:@L> lang_opt <r:@R> <lang:non_ws> <var:non_ws> equal <val:non_ws> => Directive::LangOpt{ location: Location(l..r), lang, var, val },
+    <l:@L> lang_opt <r:@R> <lang:non_ws> <var:non_ws> equal <val:string> => Directive::LangOpt{ location: Location(l..r), lang, var, val },
+    <l:@L> lang_opt <r:@R> <lang:non_ws> <var:non_ws> equal <val:langopt_int> => Directive::LangOpt{ location: Location(l..r), lang, var, val }
+}
+
+Value: Value<'i> = {
+    Int => Value::Integer(<>),
+    <l:@L> <i:Id> <r:@R> => Value::Identifier(Location(l..r), i),
+    <l:@L> "(" <e:Expression> ")" <r:@R> => Value::Expression(Location(l..r), e.boxed()),
+}
+
+Expression: Expression<'i> = {
+    L1Expr,
+};
+
+L1Expr: Expression<'i> = {
+    L2Expr,
+    <lhs:L1Expr> plus <rhs:L2Expr> => Expression::Plus(lhs.boxed(), rhs.boxed()),
+    <lhs:L1Expr> min <rhs:L2Expr> => Expression::Minus(lhs.boxed(), rhs.boxed()),
+}
+
+L2Expr: Expression<'i> = {
+    L3Expr,
+    <lhs:L2Expr> mul <rhs:L3Expr> => Expression::Multiply(lhs.boxed(), rhs.boxed()),
+    <lhs:L2Expr> div <rhs:L3Expr> => Expression::Divide(lhs.boxed(), rhs.boxed()),
+}
+L3Expr: Expression<'i> = {
+    L4Expr,
+    <lhs:L3Expr> and <rhs:L4Expr> => Expression::And(lhs.boxed(), rhs.boxed()),
+    <lhs:L3Expr> or <rhs:L4Expr> => Expression::Or(lhs.boxed(), rhs.boxed()),
+    <lhs:L3Expr> xor <rhs:L4Expr> => Expression::Xor(lhs.boxed(), rhs.boxed()),
+}
+L4Expr: Expression<'i> = {
+    min <L4Expr> => Expression::Opposite(<>.boxed()),
+    rev "(" <Expression> ")" => Expression::Reverse(<>.boxed()),
+    // This diverges from pioasm as it is not possible to replicate the precedence of rev with lalrpop
+    Value => Expression::Value(<>),
+}
+
+Instruction: (Location, Instruction<'i>) = {
+     <ops:BaseInstruction> <delay:Delay?> <side_set:SideSet?> => (ops.0, Instruction { ops: ops.1, delay, side_set }),
+     <ops:BaseInstruction> <s:SideSet> <d:Delay> => (ops.0, Instruction { ops: ops.1, delay: Some(d), side_set:Some(s) })
+}
+
+BaseInstruction: (Location, InstructionOperands<'i>) = {
+    <l:@L> nop <r:@R> => (Location(l..r), InstructionOperands::Nop),
+    <l:@L> jmp <r:@R> <c:JmpCondition?> comma? <t:Expression> => (Location(l..r), InstructionOperands::Jmp { condition: c, target: t }),
+    <l:@L> wait <r:@R> <v:Value?> comma? <src:WaitSource> => (Location(l..r), InstructionOperands::Wait { polarity: v.unwrap_or(Value::Integer(1)), src }),
+    <l:@L> in_ <r:@R> <src:InSource> comma? <bit_count:Value> => (Location(l..r), InstructionOperands::In { src, bit_count }),
+    <l:@L> out <r:@R> <target:OutTarget> comma? <bit_count:Value> => (Location(l..r), InstructionOperands::Out { target, bit_count }),
+    <l:@L> push <r:@R> <c:iffull?> <b:Blocking?> => (Location(l..r), InstructionOperands::Push { if_full: c.is_some(), blocking: b.unwrap_or(true) }),
+    <l:@L> pull <r:@R> <c:ifempty?> <b:Blocking?> => (Location(l..r), InstructionOperands::Pull { if_empty: c.is_some(), blocking: b.unwrap_or(true) }),
+    <l:@L> mov <r:@R> <t:MovTarget> comma? <op:MovOp?> <s:MovSource> => (Location(l..r), InstructionOperands::Mov { src: s, op, trg: t }),
+    <l:@L> irq <r:@R> <m:IrqModifier?> <v:Value> <re:rel?> => (Location(l..r), InstructionOperands::Irq {
+        modifier: m.unwrap_or(IrqModifier::Set),
+        value: v,
+        relative: re.is_some()
+    }),
+    <l:@L> set <r:@R> <t:SetTarget> comma? <v:Value> => (Location(l..r), InstructionOperands::Set { target: t, value: v })
+}
+
+SideSet: Value<'i> = side <Value>;
+
+Delay: Expression<'i> = lbracket <Expression> rbracket;
+
+WaitSource: WaitSource<'i> = {
+    irq comma? <v:Value> comma? <r:rel?> => WaitSource::Irq(v, r.is_some()),
+    gpio comma? <Value> => WaitSource::Gpio(<>),
+    pin comma? <Value> => WaitSource::Pin(<>)
+}
+
+InSource: InSource = {
+    pins => InSource::Pins,
+    x => InSource::X,
+    y => InSource::Y,
+    null => InSource::Null,
+    isr => InSource::Isr,
+    osr => InSource::Osr,
+}
+
+OutTarget: OutTarget = {
+    pins => OutTarget::Pins,
+    x => OutTarget::X,
+    y => OutTarget::Y,
+    null => OutTarget::Null,
+    pindirs => OutTarget::PinDirs,
+    isr => OutTarget::Isr,
+    pc => OutTarget::Pc,
+    exec => OutTarget::Exec,
+}
+
+JmpCondition: JmpCondition = {
+    not x => JmpCondition::NotX,
+    x dec => JmpCondition::XPostDec,
+    not y => JmpCondition::NotY,
+    y dec => JmpCondition::YPostDec,
+    x neq y => JmpCondition::XNotEqualY,
+    pin => JmpCondition::Pin,
+    not osre => JmpCondition::OSRNotEmpty,
+}
+
+MovOp: MovOp = {
+    not => MovOp::Not,
+    rev => MovOp::Reverse,
+}
+
+MovTarget: MovTarget = {
+    pins => MovTarget::Pins,
+    x => MovTarget::X,
+    y => MovTarget::Y,
+    pindirs => MovTarget::Pindirs,
+    exec => MovTarget::Exec,
+    pc => MovTarget::Pc,
+    isr => MovTarget::Isr,
+    osr => MovTarget::Osr,
+}
+
+MovSource: MovSource = {
+    pins => MovSource::Pins,
+    x => MovSource::X,
+    y => MovSource::Y,
+    null => MovSource::Null,
+    status => MovSource::Status,
+    isr => MovSource::Isr,
+    osr => MovSource::Osr,
+}
+
+Blocking: bool = {
+    block => true,
+    noblock => false
+}
+
+SetTarget: SetTarget = {
+    pins => SetTarget::Pins,
+    pindirs => SetTarget::PinDirs,
+    x => SetTarget::X,
+    y => SetTarget::Y
+}
+
+IrqModifier: IrqModifier = {
+    clear => IrqModifier::Clear,
+    wait => IrqModifier::SetWait,
+    nowait => IrqModifier::Set,
+    set => IrqModifier::Set
+}
+
+Label: SymbolDef<'i> = {
+    <s:SymbolDef> colon => SymbolDef { is_label: true, ..s }
+};
+
+
+extern {
+    type Location = usize;
+    type Error = lexer::Error;
+
+    enum Token<'i> {
+
+        codeblock_start => Token::CodeBlockStart(<&'i str>),
+        codeblock_content => Token::CodeBlockContent(<&'i str>),
+        newline => Token::NewLine,
+        EoF => Token::EndOfFile,
+        Id => Token::Id(<&'i str>),
+        public => Token::Public,
+        non_ws => Token::NonWS(<&'i str>),
+        string => Token::String(<&'i str>),
+        langopt_int => Token::LangOptInt(<&'i str>),
+        equal => Token::Equal,
+
+        // directives
+        program => Token::Program,
+        origin => Token::Origin,
+        side_set => Token::SideSet,
+        wrap => Token::Wrap,
+        wrap_target => Token::WrapTarget,
+        define => Token::Define,
+        word => Token::Word,
+        lang_opt => Token::LangOpt,
+
+        // instructions
+        nop => Token::Nop,
+        jmp => Token::Jmp,
+        in_ => Token::In,
+        out => Token::Out,
+        wait => Token::Wait,
+        push => Token::Push,
+        pull => Token::Pull,
+        mov => Token::Mov,
+        irq => Token::Irq,
+        set => Token::Set,
+        pin => Token::Pin,
+
+        // operands
+        x => Token::X,
+        y => Token::Y,
+        osre => Token::Osre,
+        osr => Token::Osr,
+        null => Token::Null,
+        isr => Token::Isr,
+        gpio => Token::Gpio,
+        pins => Token::Pins,
+        pindirs => Token::Pindirs,
+        pc => Token::Pc,
+        exec => Token::Exec,
+        block => Token::Block,
+        noblock => Token::NoBlock,
+        status => Token::Status,
+        nowait => Token::NoWait,
+        clear => Token::Clear,
+        side => Token::Side,
+        ifempty => Token::IfEmpty,
+        iffull => Token::IfFull,
+        rel => Token::Rel,
+        opt => Token::Optional,
+
+        // operators
+        neq => Token::NotEqual,
+        dec => Token::Decrement,
+        rev => Token::Reverse,
+        not => Token::Not,
+
+        // punctuation
+        lbracket => Token::LBracket,
+        rbracket => Token::RBracket,
+        colon => Token::Colon,
+        comma => Token::Comma,
+
+        // expression
+        "(" => Token::LParen,
+        ")" => Token::RParen,
+        plus => Token::Plus,
+        min => Token::Minus,
+        mul => Token::Multiply,
+        div => Token::Divide,
+        and => Token::And,
+        or => Token::Or,
+        xor => Token::Xor,
+        Int => Token::Int(<i32>),
+    }
+}
