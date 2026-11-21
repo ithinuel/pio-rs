@@ -58,18 +58,18 @@ pub enum Directive<'i> {
         var: &'i str,
         val: &'i str,
     },
-    /// `.pio_version <version>` (RP2350).
+    /// `.pio_version <version>`.
     ///
     /// `0`/`RP2040` selects `0` and `1`/`RP2350` selects `1`; the compiler
     /// rejects any other version.
     PioVersion(Location, i32),
-    /// `.clock_div <divider>` (RP2350).
+    /// `.clock_div <divider>`.
     ClockDiv(Location, ClockDiv),
-    /// `.fifo <config>` (RP2350).
+    /// `.fifo <config>`.
     Fifo(Location, FifoConfig),
-    /// `.mov_status <source>` (RP2350).
+    /// `.mov_status <source>`.
     MovStatus(Location, MovStatus<'i>),
-    /// `.in <count> (left|right) (auto|manual) (<threshold>)` (RP2350).
+    /// `.in <count> (left|right) (auto|manual) (<threshold>)`.
     In {
         location: Location,
         count: Value<'i>,
@@ -77,7 +77,7 @@ pub enum Directive<'i> {
         auto: bool,
         threshold: Value<'i>,
     },
-    /// `.out <count> (left|right) (auto|manual) (<threshold>)` (RP2350).
+    /// `.out <count> (left|right) (auto|manual) (<threshold>)`.
     Out {
         location: Location,
         count: Value<'i>,
@@ -85,11 +85,11 @@ pub enum Directive<'i> {
         auto: bool,
         threshold: Value<'i>,
     },
-    /// `.set <count>` (RP2350).
+    /// `.set <count>`.
     SetCount(Location, Value<'i>),
 }
 
-/// Clock divider written with the `.clock_div` directive (RP2350).
+/// Clock divider written with the `.clock_div` directive.
 ///
 /// The hardware divider is a 16.8 fixed-point number; the fractional part
 /// of the decimal notation is truncated to 8 bits like pioasm does.
@@ -111,7 +111,7 @@ impl ClockDiv {
     }
 }
 
-/// FIFO configuration written with the `.fifo` directive (RP2350).
+/// FIFO configuration written with the `.fifo` directive.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum FifoConfig {
     /// 4 FIFO entries for each of TX and RX. The default.
@@ -131,7 +131,7 @@ pub enum FifoConfig {
     Putget,
 }
 
-/// Shift direction configured with the `.in` and `.out` directives (RP2350).
+/// Shift direction configured with the `.in` and `.out` directives.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ShiftDirection {
     Left,
@@ -139,7 +139,7 @@ pub enum ShiftDirection {
 }
 
 /// Source for `mov status` configured with the `.mov_status` directive
-/// (RP2350).
+///.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum MovStatus<'i> {
     /// `mov, status` tests whether the TX FIFO level is below `n`.
@@ -154,7 +154,7 @@ pub enum MovStatus<'i> {
     },
 }
 
-/// PIO block the `.mov_status irq` flag is read from (RP2350).
+/// PIO block the `.mov_status irq` flag is read from.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum MovStatusIrqSource {
     /// This PIO instance.

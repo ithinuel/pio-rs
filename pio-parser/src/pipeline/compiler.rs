@@ -53,15 +53,15 @@ pub enum Error<'i> {
     EmptyProgram,
     #[error("Program contains {count} instructions but at most {max} are allowed")]
     ProgramTooLong { count: usize, max: usize },
-    #[error("`.pio_version` must be 0 (RP2040) or 1 (RP2350)")]
+    #[error("`.pio_version` must be 0 (RP2040) or 1")]
     InvalidPioVersion(Location),
     #[error("`{feature}` is not supported on PIO version 0 (RP2040)")]
-    FeatureNotSupportedOnPio0 {
+    FeatureNotSupportedOnPioVersion0 {
         location: Location,
         feature: &'static str,
     },
     #[error("The program uses instructions exclusive to the RP2350 but targets PIO version 0")]
-    InstructionsRequirePio1(Location),
+    InstructionsRequirePioVersion1(Location),
 }
 impl<'i> Error<'i> {
     /// Returns the byte range of the input the error refers to, when known.
@@ -77,8 +77,8 @@ impl<'i> Error<'i> {
             Error::WrapWithoutWrapTarget(location) => location,
             Error::WrapTargetWithoutWrap(location) => location,
             Error::InvalidPioVersion(location) => location,
-            Error::FeatureNotSupportedOnPio0 { location, .. } => location,
-            Error::InstructionsRequirePio1(location) => location,
+            Error::FeatureNotSupportedOnPioVersion0 { location, .. } => location,
+            Error::InstructionsRequirePioVersion1(location) => location,
             _ => return None,
         };
         Some(location.0.clone())
@@ -138,7 +138,7 @@ impl<'i> InstrOrWord<'i> {
 }
 
 /// Shift register configuration written with the `.in` and `.out`
-/// directives (RP2350).
+/// directives.
 #[derive(Debug, Clone)]
 pub struct ShiftConfig<'i> {
     /// Number of bits shifted by each `in`/`out` instruction.
@@ -161,22 +161,22 @@ pub struct ParsedProgram<'i> {
     pub origin: Option<(Value<'i>, Location)>,
     pub lang_opt: HashMap<&'i str, HashMap<&'i str, &'i str>>,
     pub instr: Vec<InstrOrWord<'i>>,
-    /// Target hardware version written with `.pio_version` (RP2350). When
+    /// Target hardware version written with `.pio_version`. When
     /// the program does not declare one, the file-level default written
     /// before the first program is applied instead. Without either, the
     /// program targets the latest version.
     pub pio_version: Option<(pio_core::PioVersion, Location)>,
-    /// Clock divider written with `.clock_div` (RP2350).
+    /// Clock divider written with `.clock_div`.
     pub clock_div: Option<(ClockDiv, Location)>,
-    /// FIFO configuration written with `.fifo` (RP2350).
+    /// FIFO configuration written with `.fifo`.
     pub fifo: Option<(FifoConfig, Location)>,
-    /// `mov status` source written with `.mov_status` (RP2350).
+    /// `mov status` source written with `.mov_status`.
     pub mov_status: Option<(MovStatus<'i>, Location)>,
-    /// Shift configuration written with `.in` (RP2350).
+    /// Shift configuration written with `.in`.
     pub in_config: Option<ShiftConfig<'i>>,
-    /// Shift configuration written with `.out` (RP2350).
+    /// Shift configuration written with `.out`.
     pub out_config: Option<ShiftConfig<'i>>,
-    /// Number of SET bits written with `.set` (RP2350).
+    /// Number of SET bits written with `.set`.
     pub set_count: Option<(Value<'i>, Location)>,
 }
 
@@ -600,7 +600,7 @@ impl<'i> Compiler<'i> {
         // A program which does not declare a target inherits the
         // `.pio_version` written before the first program, when present.
         if let Some(default) = c.default_pio_version.clone() {
-            for (_, (_, p)) in c.programs.iter_mut() {
+            for (_, p) in c.programs.values_mut() {
                 p.pio_version.get_or_insert(default.clone());
             }
         }
@@ -721,7 +721,7 @@ impl<'i> Compiler<'i> {
                     _ => None,
                 };
                 if let Some(feature) = feature {
-                    return Err(Error::FeatureNotSupportedOnPio0 {
+                    return Err(Error::FeatureNotSupportedOnPioVersion0 {
                         location: location.clone(),
                         feature,
                     });
@@ -732,7 +732,7 @@ impl<'i> Compiler<'i> {
             match status {
                 MovStatus::IrqSet { index, .. } => {
                     if targets_rp2040 {
-                        return Err(Error::FeatureNotSupportedOnPio0 {
+                        return Err(Error::FeatureNotSupportedOnPioVersion0 {
                             location: location.clone(),
                             feature: ".mov_status irq",
                         });
@@ -855,7 +855,7 @@ impl<'i> Compiler<'i> {
         // exclusive to the RP2350.
         if let Some((pio_core::PioVersion::V0, location)) = &program.pio_version {
             if version == pio_core::PioVersion::V1 {
-                return Err(Error::InstructionsRequirePio1(location.clone()));
+                return Err(Error::InstructionsRequirePioVersion1(location.clone()));
             }
         }
 
@@ -1326,7 +1326,7 @@ nop",
                 matches!(
                     err,
                     Some(PipelineError::Compiler(
-                        Error::FeatureNotSupportedOnPio0 { .. }
+                        Error::FeatureNotSupportedOnPioVersion0 { .. }
                     ))
                 ),
                 "`.fifo {cfg}` should be rejected, got: {err:?}"
@@ -1350,7 +1350,7 @@ nop",
                 matches!(
                     err,
                     Some(PipelineError::Compiler(
-                        Error::FeatureNotSupportedOnPio0 { .. }
+                        Error::FeatureNotSupportedOnPioVersion0 { .. }
                     ))
                 ),
                 "`.mov_status {irq_form}` should be rejected, got: {err:?}"
@@ -1371,7 +1371,9 @@ mov pindirs, x",
         .err();
         assert!(matches!(
             err,
-            Some(PipelineError::Compiler(Error::InstructionsRequirePio1(_)))
+            Some(PipelineError::Compiler(
+                Error::InstructionsRequirePioVersion1(_)
+            ))
         ));
     }
 
@@ -1389,7 +1391,9 @@ irq 1 next",
         .err();
         assert!(matches!(
             err,
-            Some(PipelineError::Compiler(Error::InstructionsRequirePio1(_)))
+            Some(PipelineError::Compiler(
+                Error::InstructionsRequirePioVersion1(_)
+            ))
         ));
 
         // The per-program directive overrides the file-level default.
