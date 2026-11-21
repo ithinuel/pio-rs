@@ -1,6 +1,6 @@
 ; Instruction forms exclusive to the RP2350 (PIO version V1), used by
-; `tests/pipeline_parity.rs` to check that the pipeline agrees with the
-; legacy parser on instruction encodings and on the required pio version.
+; `tests/pipeline_golden.rs` to check the instruction encodings and the
+; detected pio version.
 .program rp2350
     wait 0 irq prev 2
     wait 1 irq next 3

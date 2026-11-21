@@ -481,7 +481,7 @@ impl<'i> Compiler<'i> {
                 let bits: i32 = ss.value.clone().into();
                 // With the `opt` flag, one bit of the delay/side-set field is
                 // used to flag the presence of a side-set value.
-                if bits < 0 || bits > 5 || bits + ss.optional as i32 > 5 {
+                if !(0..=5).contains(&bits) || bits + ss.optional as i32 > 5 {
                     return Err(Error::IntegerOverflow("side_set must be in [0; 5]"));
                 }
                 let side_max = (1u8 << bits) - 1;
@@ -560,7 +560,7 @@ impl<'i> Compiler<'i> {
         let origin = match &program.origin {
             Some((origin, _)) => {
                 let origin: i32 = origin.clone().into();
-                if origin < 0 || origin > 31 {
+                if !(0..=31).contains(&origin) {
                     return Err(Error::IntegerOverflow("origin must be in [0; 31]"));
                 }
                 Some(origin as u8)
@@ -769,7 +769,9 @@ mod assemble_tests {
     use super::Error;
     use crate::pipeline::Error as PipelineError;
 
-    const NOP: u16 = 0b101_00000_010_00010; // mov y, y
+    // `mov y, y`, fields grouped per the PIO instruction layout (3/5/3/5).
+    #[allow(clippy::unusual_byte_groupings)]
+    const NOP: u16 = 0b101_00000_010_00010;
 
     fn assemble<const PROGRAM_SIZE: usize>(
         src: &str,

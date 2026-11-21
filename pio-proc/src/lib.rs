@@ -1,7 +1,6 @@
 //! This crate is an implementation detail, you must not use it directly.
 //! Use the [`pio`](https://crates.io/crates/pio) crate instead.
 
-use lalrpop_util::ParseError;
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::quote;
@@ -459,54 +458,19 @@ fn to_codegen(
     }
 }
 
-fn parse_error(error: &pio_parser::ParseError, program_source: &str) -> proc_macro2::TokenStream {
-    let e = error;
+fn parse_error(
+    error: &pio_parser::ParseError<'_>,
+    program_source: &str,
+) -> proc_macro2::TokenStream {
     let files = codespan_reporting::files::SimpleFile::new("source", program_source);
 
-    let (loc, messages) = match e {
-        ParseError::InvalidToken { location } => {
-            (*location..*location, vec!["invalid token".to_string()])
-        }
-        ParseError::UnrecognizedEof { location, expected } => (
-            *location..*location,
-            vec![
-                "unrecognized eof".to_string(),
-                format!("expected one of {}", expected.join(", ")),
-            ],
-        ),
-        ParseError::UnrecognizedToken { token, expected } => (
-            token.0..token.2,
-            vec![
-                format!("unexpected token: {:?}", format!("{}", token.1)),
-                format!("expected one of {}", expected.join(", ")),
-            ],
-        ),
-        ParseError::ExtraToken { token } => {
-            (token.0..token.2, vec![format!("extra token: {}", token.1)])
-        }
-        ParseError::User { error } => (0..0, vec![error.to_string()]),
-    };
-
     let diagnostic = codespan_reporting::diagnostic::Diagnostic::error()
-        .with_message(messages[0].clone())
-        .with_labels(
-            messages
-                .iter()
-                .enumerate()
-                .map(|(i, m)| {
-                    codespan_reporting::diagnostic::Label::new(
-                        if i == 0 {
-                            codespan_reporting::diagnostic::LabelStyle::Primary
-                        } else {
-                            codespan_reporting::diagnostic::LabelStyle::Secondary
-                        },
-                        (),
-                        loc.clone(),
-                    )
-                    .with_message(m)
-                })
-                .collect(),
-        );
+        .with_message(error.message())
+        .with_labels(vec![codespan_reporting::diagnostic::Label::new(
+            codespan_reporting::diagnostic::LabelStyle::Primary,
+            (),
+            error.span().unwrap_or(0..0),
+        )]);
 
     let mut writer = codespan_reporting::term::termcolor::Buffer::ansi();
     let config = codespan_reporting::term::Config::default();

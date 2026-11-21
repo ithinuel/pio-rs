@@ -1,11 +1,12 @@
 use std::{fs, path::PathBuf};
 
-/// Checks that the re-implementation of the parser (the `pipeline` module)
-/// can parse and compile all the pico-examples.
+/// Checks that the `pipeline` module can parse and compile all the
+/// pico-examples.
 ///
 /// The end-to-end comparison against the reference `.hex` encodings happens
-/// in `pico-examples.rs` for the legacy parser; it is replicated for the
-/// pipeline in `pipeline_asm.rs` and `pipeline_parity.rs`.
+/// in `pico-examples.rs` (through the public [`pio_parser::Parser`] API) and
+/// in `pipeline_asm.rs` (through the pipeline API); field-level expectations
+/// for the other corpus files live in `pipeline_golden.rs`.
 #[test_generator::test_resources("tests/pico-examples/*.pio")]
 fn pipeline_parse_and_compile(test: &str) {
     let path = PathBuf::from(test);

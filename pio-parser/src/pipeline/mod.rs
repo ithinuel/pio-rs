@@ -1,7 +1,6 @@
-//! Re-implementation of the PIO asm front-end.
+//! The PIO asm compilation pipeline.
 //!
-//! This module implements a compilation pipeline which is split in distinct
-//! steps:
+//! This module implements the front-end as distinct steps:
 //!
 //! 1. lexing ([`lexer`]) turns the input text into a stream of tokens.
 //! 2. parsing ([`parser`]) turns the token stream into an abstract syntax
@@ -10,9 +9,9 @@
 //!    defines and validates the operands.
 //! 4. assembling turns the compiled programs into encoded pio instructions.
 //!
-//! It is currently a work in progress and lives alongside the existing
-//! parser. Prefer the [`crate::Parser`] API until this module reaches feature
-//! parity.
+//! [`crate::Parser`] is a thin façade over [`compile_and_assemble`]; use the
+//! individual steps here when you need access to the syntax tree or to the
+//! resolved-but-not-yet-encoded programs.
 
 mod ast;
 pub mod compiler;
@@ -147,6 +146,8 @@ mod tests {
     use super::*;
 
     #[test]
+    // Encodings written with the PIO instruction field groupings (3/5/3/5).
+    #[allow(clippy::unusual_byte_groupings)]
     fn compile_program_without_directive() {
         let assembled = compile_and_assemble_program::<32>(
             "
