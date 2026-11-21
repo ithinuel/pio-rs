@@ -6,12 +6,6 @@ use std::{collections::HashMap, fs, path::PathBuf};
 /// `pico-examples.rs` runs the same comparison for the legacy parser.
 #[test_generator::test_resources("tests/pico-examples/*.pio")]
 fn pipeline_matches_pioasm(test: &str) {
-    // rmii_rx.pio uses `wait jmppin`, an RP2350-only instruction which the
-    // pipeline does not support yet.
-    if test.ends_with("rmii_rx.pio") {
-        return;
-    }
-
     let path = PathBuf::from(test);
     let program_source = fs::read_to_string(&path).unwrap();
 

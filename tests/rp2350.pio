@@ -1,0 +1,17 @@
+; Instruction forms exclusive to the RP2350 (PIO version V1), used by
+; `tests/pipeline_parity.rs` to check that the pipeline agrees with the
+; legacy parser on instruction encodings and on the required pio version.
+.program rp2350
+    wait 0 irq prev 2
+    wait 1 irq next 3
+    wait 1 irq rel 4
+    wait 1 jmppin
+    wait 1 jmppin + 8 [4]
+    mov rxfifo[y], isr
+    mov rxfifo[0], isr
+    mov osr, rxfifo[1]
+    irq 3 prev
+    irq 4 next
+    irq 5 rel
+    mov pindirs, x
+    nop

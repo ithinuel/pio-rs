@@ -10,9 +10,11 @@ use crate::pipeline::{
   MovSource,
   MovTarget,
   OutTarget,
+  RxFifoIndex,
   SymbolDef,
   SetTarget,
   Expression,
+  IrqIndexMode,
   WaitSource,
   Instruction,
   IrqModifier,
@@ -113,10 +115,10 @@ BaseInstruction: (Location, InstructionOperands<'i>) = {
     <l:@L> push <r:@R> <c:iffull?> <b:Blocking?> => (Location(l..r), InstructionOperands::Push { if_full: c.is_some(), blocking: b.unwrap_or(true) }),
     <l:@L> pull <r:@R> <c:ifempty?> <b:Blocking?> => (Location(l..r), InstructionOperands::Pull { if_empty: c.is_some(), blocking: b.unwrap_or(true) }),
     <l:@L> mov <r:@R> <t:MovTarget> comma? <op:MovOp?> <s:MovSource> => (Location(l..r), InstructionOperands::Mov { src: s, op, trg: t }),
-    <l:@L> irq <r:@R> <m:IrqModifier?> <v:Value> <re:rel?> => (Location(l..r), InstructionOperands::Irq {
+    <l:@L> irq <r:@R> <m:IrqModifier?> <v:Value> <mode:IrqIndexModeKw?> => (Location(l..r), InstructionOperands::Irq {
         modifier: m.unwrap_or(IrqModifier::Set),
         value: v,
-        relative: re.is_some()
+        index_mode: mode.unwrap_or(IrqIndexMode::Direct)
     }),
     <l:@L> set <r:@R> <t:SetTarget> comma? <v:Value> => (Location(l..r), InstructionOperands::Set { target: t, value: v })
 }
@@ -126,9 +128,16 @@ SideSet: Value<'i> = side <Value>;
 Delay: Expression<'i> = lbracket <Expression> rbracket;
 
 WaitSource: WaitSource<'i> = {
-    irq comma? <v:Value> comma? <r:rel?> => WaitSource::Irq(v, r.is_some()),
+    irq comma? <m:IrqIndexModeKw?> <v:Value> comma? <r:rel?> => WaitSource::Irq(v, if r.is_some() { IrqIndexMode::Rel } else { m.unwrap_or(IrqIndexMode::Direct) }),
     gpio comma? <Value> => WaitSource::Gpio(<>),
-    pin comma? <Value> => WaitSource::Pin(<>)
+    pin comma? <Value> => WaitSource::Pin(<>),
+    jmppin comma? <offset:(plus <Value>)?> => WaitSource::JmpPin(<>),
+}
+
+IrqIndexModeKw: IrqIndexMode = {
+    prev => IrqIndexMode::Prev,
+    rel => IrqIndexMode::Rel,
+    next => IrqIndexMode::Next,
 }
 
 InSource: InSource = {
@@ -175,6 +184,11 @@ MovTarget: MovTarget = {
     pc => MovTarget::Pc,
     isr => MovTarget::Isr,
     osr => MovTarget::Osr,
+    rxfifo_y => MovTarget::Rxfifo(RxFifoIndex::Y),
+    rxfifo_0 => MovTarget::Rxfifo(RxFifoIndex::_0),
+    rxfifo_1 => MovTarget::Rxfifo(RxFifoIndex::_1),
+    rxfifo_2 => MovTarget::Rxfifo(RxFifoIndex::_2),
+    rxfifo_3 => MovTarget::Rxfifo(RxFifoIndex::_3),
 }
 
 MovSource: MovSource = {
@@ -185,6 +199,11 @@ MovSource: MovSource = {
     status => MovSource::Status,
     isr => MovSource::Isr,
     osr => MovSource::Osr,
+    rxfifo_y => MovSource::Rxfifo(RxFifoIndex::Y),
+    rxfifo_0 => MovSource::Rxfifo(RxFifoIndex::_0),
+    rxfifo_1 => MovSource::Rxfifo(RxFifoIndex::_1),
+    rxfifo_2 => MovSource::Rxfifo(RxFifoIndex::_2),
+    rxfifo_3 => MovSource::Rxfifo(RxFifoIndex::_3),
 }
 
 Blocking: bool = {
@@ -272,6 +291,14 @@ extern {
         ifempty => Token::IfEmpty,
         iffull => Token::IfFull,
         rel => Token::Rel,
+        prev => Token::Prev,
+        next => Token::Next,
+        jmppin => Token::Jmppin,
+        rxfifo_y => Token::RxFifoY,
+        rxfifo_0 => Token::RxFifo0,
+        rxfifo_1 => Token::RxFifo1,
+        rxfifo_2 => Token::RxFifo2,
+        rxfifo_3 => Token::RxFifo3,
         opt => Token::Optional,
 
         // operators

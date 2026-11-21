@@ -52,11 +52,6 @@ fn assert_matches_legacy(test: &str) {
 
 #[test_generator::test_resources("tests/pico-examples/*.pio")]
 fn pico_examples_match_legacy(test: &str) {
-    // rmii_rx.pio uses `wait jmppin`, an RP2350-only instruction which the
-    // pipeline does not support yet.
-    if test.ends_with("rmii_rx.pio") {
-        return;
-    }
     assert_matches_legacy(test);
 }
 
@@ -64,4 +59,28 @@ fn pico_examples_match_legacy(test: &str) {
 fn test_pio_file_matches_legacy() {
     // Exercises public defines, public labels, origin and wrapping.
     assert_matches_legacy("tests/test.pio");
+}
+
+#[test]
+fn case_test_matches_legacy() {
+    // Exercises case-insensitive instructions, directives and keywords.
+    assert_matches_legacy("tests/case_test.pio");
+}
+
+#[test]
+fn rp2350_matches_legacy() {
+    // Exercises RP2350-only instructions.
+    assert_matches_legacy("tests/rp2350.pio");
+
+    // ... and check the programs are flagged as requiring the RP2350.
+    const MAX: usize = pio::RP2040_MAX_PROGRAM_SIZE;
+    let program_source = fs::read_to_string("tests/rp2350.pio").unwrap();
+    let pipeline = pio_parser::pipeline::compile_and_assemble::<MAX>(&program_source).unwrap();
+    for (name, program) in &pipeline.programs {
+        assert_eq!(
+            program.program.program.version,
+            pio_core::PioVersion::V1,
+            "{name} should require the RP2350"
+        );
+    }
 }

@@ -199,6 +199,23 @@ pub enum Token<'i> {
     Gpio,
     #[token("OSRE", ignore(case))]
     Osre,
+    #[token("JMPPIN", ignore(case))]
+    Jmppin,
+    #[token("PREV", ignore(case))]
+    Prev,
+    #[token("NEXT", ignore(case))]
+    Next,
+
+    #[token("RXFIFO[Y]", ignore(case))]
+    RxFifoY,
+    #[token("RXFIFO[0]", ignore(case))]
+    RxFifo0,
+    #[token("RXFIFO[1]", ignore(case))]
+    RxFifo1,
+    #[token("RXFIFO[2]", ignore(case))]
+    RxFifo2,
+    #[token("RXFIFO[3]", ignore(case))]
+    RxFifo3,
 
     #[token("PINS", ignore(case))]
     Pins,

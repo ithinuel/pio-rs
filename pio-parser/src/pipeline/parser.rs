@@ -351,7 +351,14 @@ Yes indeed.
                     match s {
                         "pin" => Pin(ev),
                         "gpio" => Gpio(ev),
-                        "irq" => Irq(ev, !r.is_empty()),
+                        "irq" => Irq(
+                            ev,
+                            if r.is_empty() {
+                                crate::pipeline::IrqIndexMode::Direct
+                            } else {
+                                crate::pipeline::IrqIndexMode::Rel
+                            },
+                        ),
                         _ => unreachable!(),
                     },
                 );
@@ -359,6 +366,217 @@ Yes indeed.
             })
             .map(|(input, (polarity, src))| (input, wait(polarity, src)))
             .collect_vec();
+        assert(&test_set);
+    }
+
+    #[test]
+    fn parse_instruction_wait_jmppin() {
+        use crate::pipeline::{
+            Expression, Instruction, InstructionOperands, Line::*, Value::*, WaitSource::*,
+        };
+
+        let wait = |polarity, src| {
+            Instruction(
+                Location(0..4),
+                Instruction {
+                    ops: InstructionOperands::Wait { polarity, src },
+                    ..BASE
+                },
+            )
+        };
+
+        let test_set = [
+            ("wait 0 jmppin", Integer(0), JmpPin(None)),
+            ("wait 1 jmppin", Integer(1), JmpPin(None)),
+            ("wait 1 jmppin + 8", Integer(1), JmpPin(Some(Integer(8)))),
+            (
+                "wait 1, jmppin, + (4+4)",
+                Integer(1),
+                JmpPin(Some(Expression(
+                    Location(18..23),
+                    Expression::Plus(
+                        Expression::Value(Integer(4)).boxed(),
+                        Expression::Value(Integer(4)).boxed(),
+                    )
+                    .boxed(),
+                ))),
+            ),
+        ]
+        .into_iter()
+        .map(|(input, polarity, src)| (input.to_string(), wait(polarity, src)))
+        .collect_vec();
+
+        assert(&test_set);
+    }
+
+    #[test]
+    fn parse_instruction_wait_irq_index_modes() {
+        use crate::pipeline::{
+            Instruction, InstructionOperands, IrqIndexMode, Line::*, Value::*, WaitSource::*,
+        };
+
+        let wait = |irq, index_mode| {
+            Instruction(
+                Location(0..4),
+                Instruction {
+                    ops: InstructionOperands::Wait {
+                        polarity: Integer(1),
+                        src: Irq(Integer(irq), index_mode),
+                    },
+                    ..BASE
+                },
+            )
+        };
+
+        use IrqIndexMode::*;
+        let test_set = [
+            ("wait 1 irq 2", Direct),
+            ("wait 1 irq prev 2", Prev),
+            ("wait 1 irq rel 2", Rel),
+            ("wait 1 irq next 2", Next),
+            ("wait 1 irq 2 rel", Rel),
+            // A trailing `rel` overrides the index mode.
+            ("wait 1 irq prev 2 rel", Rel),
+            ("wait 1 irq next 2 rel", Rel),
+        ]
+        .into_iter()
+        .map(|(input, index_mode)| (input.to_string(), wait(2, index_mode)))
+        .collect_vec();
+
+        assert(&test_set);
+    }
+
+    #[test]
+    fn parse_instruction_irq_index_modes() {
+        use crate::pipeline::{
+            Instruction, InstructionOperands::Irq, IrqIndexMode, IrqModifier, Line::*,
+            Value::Integer,
+        };
+        let irq = |ops| {
+            Instruction(
+                Location(0..3),
+                Instruction {
+                    ops,
+                    delay: None,
+                    side_set: None,
+                },
+            )
+        };
+
+        use IrqIndexMode::*;
+        let test_set = [
+            ("irq 3", IrqModifier::Set, Direct),
+            ("irq 3 prev", IrqModifier::Set, Prev),
+            ("irq 3 rel", IrqModifier::Set, Rel),
+            ("irq 3 next", IrqModifier::Set, Next),
+            ("irq wait 3 prev", IrqModifier::SetWait, Prev),
+            ("irq clear 3 next", IrqModifier::Clear, Next),
+        ]
+        .into_iter()
+        .map(|(input, modifier, index_mode)| {
+            (
+                input.to_string(),
+                irq(Irq {
+                    modifier,
+                    value: Integer(3),
+                    index_mode,
+                }),
+            )
+        })
+        .collect_vec();
+
+        assert(&test_set);
+    }
+
+    #[test]
+    fn parse_instruction_mov_rxfifo() {
+        use crate::pipeline::{
+            Instruction, InstructionOperands::Mov, Line::*, MovOp, MovSource, MovTarget,
+            RxFifoIndex,
+        };
+        let mov = |ops| {
+            Instruction(
+                Location(0..3),
+                Instruction {
+                    ops,
+                    delay: None,
+                    side_set: None,
+                },
+            )
+        };
+
+        let test_set = [
+            (
+                "mov rxfifo[y], isr",
+                Mov {
+                    trg: MovTarget::Rxfifo(RxFifoIndex::Y),
+                    op: None,
+                    src: MovSource::Isr,
+                },
+            ),
+            (
+                "mov RXFIFO[0], ISR",
+                Mov {
+                    trg: MovTarget::Rxfifo(RxFifoIndex::_0),
+                    op: None,
+                    src: MovSource::Isr,
+                },
+            ),
+            (
+                "mov rxfifo[1], isr",
+                Mov {
+                    trg: MovTarget::Rxfifo(RxFifoIndex::_1),
+                    op: None,
+                    src: MovSource::Isr,
+                },
+            ),
+            (
+                "mov rxfifo[2], isr",
+                Mov {
+                    trg: MovTarget::Rxfifo(RxFifoIndex::_2),
+                    op: None,
+                    src: MovSource::Isr,
+                },
+            ),
+            (
+                "mov rxfifo[3], isr",
+                Mov {
+                    trg: MovTarget::Rxfifo(RxFifoIndex::_3),
+                    op: None,
+                    src: MovSource::Isr,
+                },
+            ),
+            (
+                "mov osr, rxfifo[y]",
+                Mov {
+                    trg: MovTarget::Osr,
+                    op: None,
+                    src: MovSource::Rxfifo(RxFifoIndex::Y),
+                },
+            ),
+            (
+                "mov osr, rxfifo[3]",
+                Mov {
+                    trg: MovTarget::Osr,
+                    op: None,
+                    src: MovSource::Rxfifo(RxFifoIndex::_3),
+                },
+            ),
+            (
+                // The mov op is silently dropped for rxfifo instructions,
+                // like the legacy parser does.
+                "mov rxfifo[y], ::isr",
+                Mov {
+                    trg: MovTarget::Rxfifo(RxFifoIndex::Y),
+                    op: Some(MovOp::Reverse),
+                    src: MovSource::Isr,
+                },
+            ),
+        ]
+        .into_iter()
+        .map(|(input, ops)| (input.to_string(), mov(ops)))
+        .collect_vec();
+
         assert(&test_set);
     }
 
@@ -637,7 +855,11 @@ Yes indeed.
                 let expected = irq(Irq {
                     modifier: m.1,
                     value: Integer(0),
-                    relative: r.1,
+                    index_mode: if r.1 {
+                        crate::pipeline::IrqIndexMode::Rel
+                    } else {
+                        crate::pipeline::IrqIndexMode::Direct
+                    },
                 });
                 (input, expected)
             })

@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use pio_core as ir;
 
 use crate::pipeline::compiler::{Defines, Error, Resolve, SymbolId};
@@ -26,8 +28,6 @@ fn resolve<'i>(
 /// The location of a token in an input.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Location(pub Range<usize>);
-
-use std::ops::Range;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Line<'i> {
@@ -260,7 +260,7 @@ pub enum InstructionOperands<'i> {
     Irq {
         modifier: IrqModifier,
         value: Value<'i>,
-        relative: bool,
+        index_mode: IrqIndexMode,
     },
     Set {
         target: SetTarget,
@@ -295,6 +295,8 @@ impl<'i> InstructionOperands<'i> {
                     WaitSource::Irq(v, _) | WaitSource::Gpio(v) | WaitSource::Pin(v) => {
                         resolve_value("wait", v)?
                     }
+                    WaitSource::JmpPin(Some(v)) => resolve_value("wait", v)?,
+                    WaitSource::JmpPin(None) => {}
                 }
             }
             Self::Irq { value, .. } => resolve_value("irq", value)?,
@@ -353,13 +355,9 @@ impl<'i> TryFrom<InstructionOperands<'i>> for ir::InstructionOperands {
                 };
 
                 let source = match src {
-                    WaitSource::Irq(s, relative) => match s.into() {
+                    WaitSource::Irq(s, index_mode) => match s.into() {
                         i @ 0..=7 => ir::WaitSource::Irq {
-                            index_mode: if relative {
-                                ir::IrqIndexMode::REL
-                            } else {
-                                ir::IrqIndexMode::DIRECT
-                            },
+                            index_mode: index_mode.into(),
                             irq: i as u8,
                         },
                         _ => {
@@ -368,6 +366,19 @@ impl<'i> TryFrom<InstructionOperands<'i>> for ir::InstructionOperands {
                     },
                     WaitSource::Gpio(index) => pin_or_gpio(index.into(), ir::WaitSource::Gpio)?,
                     WaitSource::Pin(index) => pin_or_gpio(index.into(), ir::WaitSource::Pin)?,
+                    WaitSource::JmpPin(offset) => ir::WaitSource::JmpPin {
+                        offset: match offset {
+                            Some(offset) => match offset.into() {
+                                o @ 0..=31 => Some(o as u8),
+                                _ => {
+                                    return Err(Error::IntegerOverflow(
+                                        "jmppin offset must be in [0; 31].",
+                                    ))
+                                }
+                            },
+                            None => None,
+                        },
+                    },
                 };
                 ir::InstructionOperands::WAIT { polarity, source }
             }
@@ -396,15 +407,26 @@ impl<'i> TryFrom<InstructionOperands<'i>> for ir::InstructionOperands {
                 if_empty,
                 block: blocking,
             },
-            Mov { src, op, trg } => ir::InstructionOperands::MOV {
-                destination: trg.into(),
-                op: op.map(Into::into).unwrap_or(ir::MovOperation::None),
-                source: src.into(),
+            Mov { src, op, trg } => match (trg, src) {
+                (MovTarget::Rxfifo(index), MovSource::Isr) => ir::InstructionOperands::MOVTORX {
+                    fifo_index: index.into(),
+                },
+                (MovTarget::Osr, MovSource::Rxfifo(index)) => ir::InstructionOperands::MOVFROMRX {
+                    fifo_index: index.into(),
+                },
+                (MovTarget::Rxfifo(_), _) | (_, MovSource::Rxfifo(_)) => {
+                    return Err(Error::InvalidMovFifo)
+                }
+                (trg, src) => ir::InstructionOperands::MOV {
+                    destination: trg.into(),
+                    op: op.map(Into::into).unwrap_or(ir::MovOperation::None),
+                    source: src.into(),
+                },
             },
             Irq {
                 modifier,
                 value,
-                relative,
+                index_mode,
             } => ir::InstructionOperands::IRQ {
                 clear: matches!(modifier, IrqModifier::Clear),
                 wait: matches!(modifier, IrqModifier::SetWait),
@@ -412,11 +434,7 @@ impl<'i> TryFrom<InstructionOperands<'i>> for ir::InstructionOperands {
                     v @ 0..=7 => v as u8,
                     _ => return Err(Error::IntegerOverflow("irq index must be in [0; 7].")),
                 },
-                index_mode: if relative {
-                    ir::IrqIndexMode::REL
-                } else {
-                    ir::IrqIndexMode::DIRECT
-                },
+                index_mode: index_mode.into(),
             },
             Set { target, value } => ir::InstructionOperands::SET {
                 destination: target.into(),
@@ -431,9 +449,31 @@ impl<'i> TryFrom<InstructionOperands<'i>> for ir::InstructionOperands {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum WaitSource<'i> {
-    Irq(Value<'i>, bool),
+    Irq(Value<'i>, IrqIndexMode),
     Gpio(Value<'i>),
     Pin(Value<'i>),
+    JmpPin(Option<Value<'i>>),
+}
+
+/// Index mode of `irq` and `wait .. irq` instructions.
+///
+/// `Prev` and `Next` are only available on the RP2350.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum IrqIndexMode {
+    Direct,
+    Prev,
+    Rel,
+    Next,
+}
+impl From<IrqIndexMode> for ir::IrqIndexMode {
+    fn from(mode: IrqIndexMode) -> ir::IrqIndexMode {
+        match mode {
+            IrqIndexMode::Direct => ir::IrqIndexMode::DIRECT,
+            IrqIndexMode::Prev => ir::IrqIndexMode::PREV,
+            IrqIndexMode::Rel => ir::IrqIndexMode::REL,
+            IrqIndexMode::Next => ir::IrqIndexMode::NEXT,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -536,6 +576,7 @@ pub enum MovTarget {
     Pc,
     Isr,
     Osr,
+    Rxfifo(RxFifoIndex),
 }
 impl From<MovTarget> for ir::MovDestination {
     fn from(target: MovTarget) -> ir::MovDestination {
@@ -548,6 +589,8 @@ impl From<MovTarget> for ir::MovDestination {
             MovTarget::Pc => ir::MovDestination::PC,
             MovTarget::Isr => ir::MovDestination::ISR,
             MovTarget::Osr => ir::MovDestination::OSR,
+            // rxfifo combinations are resolved when converting the operands.
+            MovTarget::Rxfifo(_) => unreachable!(),
         }
     }
 }
@@ -560,6 +603,7 @@ pub enum MovSource {
     Status,
     Isr,
     Osr,
+    Rxfifo(RxFifoIndex),
 }
 impl From<MovSource> for ir::MovSource {
     fn from(src: MovSource) -> ir::MovSource {
@@ -571,6 +615,30 @@ impl From<MovSource> for ir::MovSource {
             MovSource::Status => ir::MovSource::STATUS,
             MovSource::Isr => ir::MovSource::ISR,
             MovSource::Osr => ir::MovSource::OSR,
+            // rxfifo combinations are resolved when converting the operands.
+            MovSource::Rxfifo(_) => unreachable!(),
+        }
+    }
+}
+
+/// Index of the receive fifo for the `mov` instructions exclusive to the
+/// RP2350.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum RxFifoIndex {
+    Y,
+    _0,
+    _1,
+    _2,
+    _3,
+}
+impl From<RxFifoIndex> for ir::MovRxIndex {
+    fn from(index: RxFifoIndex) -> ir::MovRxIndex {
+        match index {
+            RxFifoIndex::Y => ir::MovRxIndex::RXFIFOY,
+            RxFifoIndex::_0 => ir::MovRxIndex::RXFIFO0,
+            RxFifoIndex::_1 => ir::MovRxIndex::RXFIFO1,
+            RxFifoIndex::_2 => ir::MovRxIndex::RXFIFO2,
+            RxFifoIndex::_3 => ir::MovRxIndex::RXFIFO3,
         }
     }
 }

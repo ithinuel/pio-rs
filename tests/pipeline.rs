@@ -4,16 +4,10 @@ use std::{fs, path::PathBuf};
 /// can parse and compile all the pico-examples.
 ///
 /// The end-to-end comparison against the reference `.hex` encodings happens
-/// in `pico-examples.rs` for the legacy parser; it will be replicated for the
-/// pipeline once it can assemble programs.
+/// in `pico-examples.rs` for the legacy parser; it is replicated for the
+/// pipeline in `pipeline_asm.rs` and `pipeline_parity.rs`.
 #[test_generator::test_resources("tests/pico-examples/*.pio")]
 fn pipeline_parse_and_compile(test: &str) {
-    // rmii_rx.pio uses `wait jmppin`, an RP2350-only instruction which the
-    // pipeline does not support yet.
-    if test.ends_with("rmii_rx.pio") {
-        return;
-    }
-
     let path = PathBuf::from(test);
     let program_source = fs::read_to_string(&path).unwrap();
 
@@ -24,4 +18,12 @@ fn pipeline_parse_and_compile(test: &str) {
         !file.programs.is_empty(),
         "{test}: no programs were compiled"
     );
+}
+
+#[test]
+fn pipeline_compiles_case_test() {
+    let program_source = fs::read_to_string("tests/case_test.pio").unwrap();
+    let file =
+        pio_parser::pipeline::compile(&program_source).expect("case_test.pio: compilation failed");
+    assert_eq!(file.programs.len(), 4);
 }

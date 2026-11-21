@@ -41,6 +41,10 @@ pub enum Error<'i> {
     UndefinedSymbol(&'i str, &'i str),
     #[error("Integer out of range for type")]
     IntegerOutOfRange,
+    #[error(
+        "`rxfifo[..]` is only valid in `mov rxfifo[..], isr` and `mov osr, rxfifo[..]` instructions"
+    )]
+    InvalidMovFifo,
     #[error("`.wrap` cannot be used without a preceding `.wrap_target`")]
     WrapWithoutWrapTarget(Location),
     #[error("`.wrap_target` cannot be used without a following `.wrap`")]
@@ -910,5 +914,63 @@ nop [32]",
             err,
             Some(PipelineError::Compiler(Error::IntegerOverflow(_)))
         ));
+    }
+
+    #[test]
+    fn rp2350_instructions_require_version_1() {
+        // Each of these constructs is only available on the RP2350.
+        for src in [
+            "wait 1 jmppin",
+            "wait 1 jmppin + 8",
+            "mov rxfifo[y], isr",
+            "mov osr, rxfifo[0]",
+            "mov pindirs, x",
+            "wait 1 irq prev 1",
+            "wait 1 irq next 1",
+            "irq 1 prev",
+            "irq 1 next",
+        ] {
+            let full = format!(".program test\n{src}\nnop\n");
+            let file = assemble::<32>(&full).unwrap_or_else(|e| panic!("{src}: {e:?}"));
+            assert_eq!(
+                file.programs["test"].program.program.version,
+                pio_core::PioVersion::V1,
+                "`{src}` should require the RP2350"
+            );
+        }
+    }
+
+    #[test]
+    fn rp2040_instructions_do_not_require_version_1() {
+        // `rel` irq addressing is available on both generations, and
+        // `set pindirs` is not flagged by pio_core::Assembler::version().
+        let file = assemble::<32>(
+            r".program test
+wait 1 irq rel 1
+irq 2 rel
+set pindirs, 1
+nop",
+        )
+        .expect("failed to assemble");
+        assert_eq!(
+            file.programs["test"].program.program.version,
+            pio_core::PioVersion::V0
+        );
+    }
+
+    #[test]
+    fn illegal_rxfifo_mov_combinations_are_rejected() {
+        for src in [
+            "mov rxfifo[y], x",
+            "mov pins, rxfifo[y]",
+            "mov rxfifo[0], rxfifo[1]",
+        ] {
+            let full = format!(".program test\n{src}\n");
+            let err = assemble::<32>(&full).err();
+            assert!(
+                matches!(err, Some(PipelineError::Compiler(Error::InvalidMovFifo))),
+                "`{src}` should be rejected, got: {err:?}"
+            );
+        }
     }
 }
