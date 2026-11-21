@@ -1,6 +1,7 @@
 use std::collections::{hash_map::Entry, HashMap};
 
 use super::*;
+use arrayvec::ArrayVec;
 use itertools::Itertools;
 
 #[derive(thiserror::Error, Debug, PartialEq, Eq)]
@@ -40,6 +41,14 @@ pub enum Error<'i> {
     UndefinedSymbol(&'i str, &'i str),
     #[error("Integer out of range for type")]
     IntegerOutOfRange,
+    #[error("`.wrap` cannot be used without a preceding `.wrap_target`")]
+    WrapWithoutWrapTarget(Location),
+    #[error("`.wrap_target` cannot be used without a following `.wrap`")]
+    WrapTargetWithoutWrap(Location),
+    #[error("A program must contain at least one instruction")]
+    EmptyProgram,
+    #[error("Program contains {count} instructions but at most {max} are allowed")]
+    ProgramTooLong { count: usize, max: usize },
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -117,6 +126,12 @@ pub struct File<'i, T: 'i> {
     pub programs: HashMap<&'i str, T>,
     pub code_blocks: Vec<CodeBlock<'i>>,
     pub defines: HashMap<SymbolId<'i>, (bool, i32)>,
+}
+
+/// A program encoded into pio machine code.
+pub struct AssembledProgram<'i, const PROGRAM_SIZE: usize> {
+    pub program: pio_core::ProgramWithDefines<HashMap<String, i32>, PROGRAM_SIZE>,
+    pub lang_opt: HashMap<&'i str, HashMap<&'i str, &'i str>>,
 }
 
 #[derive(Debug)]
@@ -312,6 +327,29 @@ impl<'i> Compiler<'i> {
         let mut pending = Vec::new();
 
         for (prog_name, (_, program)) in self.programs.iter_mut() {
+            if let Some((origin, _)) = &mut program.origin {
+                let value = origin.resolve(
+                    SymbolId {
+                        prog_name,
+                        var_name: ".origin",
+                    },
+                    &self.defines,
+                    &mut pending,
+                )?;
+                *origin = Value::Integer(value);
+            }
+            if let Some(side_set) = &mut program.side_set {
+                let value = side_set.value.resolve(
+                    SymbolId {
+                        prog_name,
+                        var_name: ".side_set",
+                    },
+                    &self.defines,
+                    &mut pending,
+                )?;
+                side_set.value = Value::Integer(value);
+            }
+
             for instr in program.instr.iter_mut() {
                 match instr {
                     InstrOrWord::Instruction(i) => {
@@ -358,6 +396,175 @@ impl<'i> Compiler<'i> {
             programs,
             code_blocks: c.code_blocks,
             defines,
+        })
+    }
+
+    /// Assembles the compiled programs into machine code.
+    pub fn assemble<const PROGRAM_SIZE: usize>(
+        v: File<'i, ParsedProgram<'i>>,
+    ) -> Result<File<'i, AssembledProgram<'i, PROGRAM_SIZE>>, Error<'i>> {
+        let File {
+            programs,
+            code_blocks,
+            defines,
+        } = v;
+
+        let mut assembled = HashMap::with_capacity(programs.len());
+        for (name, program) in programs {
+            let lang_opt = program.lang_opt.clone();
+            let program = Compiler::assemble_program::<PROGRAM_SIZE>(program)?;
+            assembled.insert(
+                name,
+                AssembledProgram {
+                    program: pio_core::ProgramWithDefines {
+                        program,
+                        public_defines: Compiler::public_defines(name, &defines),
+                    },
+                    lang_opt,
+                },
+            );
+        }
+
+        Ok(File {
+            programs: assembled,
+            code_blocks,
+            defines,
+        })
+    }
+
+    /// Returns the public defines visible from `prog_name`: the global ones
+    /// shadowed by the ones defined in the program itself.
+    fn public_defines(
+        prog_name: &str,
+        defines: &HashMap<SymbolId<'i>, (bool, i32)>,
+    ) -> HashMap<String, i32> {
+        let mut public_defines = HashMap::new();
+        for scope in ["", prog_name] {
+            for (symbol, (_, value)) in defines {
+                if symbol.prog_name == scope {
+                    public_defines.insert(symbol.var_name.to_string(), *value);
+                }
+            }
+        }
+        public_defines
+    }
+
+    /// Encodes a single program into pio machine code.
+    fn assemble_program<const PROGRAM_SIZE: usize>(
+        program: ParsedProgram<'i>,
+    ) -> Result<pio_core::Program<PROGRAM_SIZE>, Error<'i>> {
+        // `.side_set` and `.origin` are resolved during reification.
+        let (side_set, side_max) = match &program.side_set {
+            Some(ss) => {
+                let bits: i32 = ss.value.clone().into();
+                // With the `opt` flag, one bit of the delay/side-set field is
+                // used to flag the presence of a side-set value.
+                if bits < 0 || bits > 5 || bits + ss.optional as i32 > 5 {
+                    return Err(Error::IntegerOverflow("side_set must be in [0; 5]"));
+                }
+                let side_max = (1u8 << bits) - 1;
+                (
+                    pio_core::SideSet::new(ss.optional, bits as u8, ss.pindirs),
+                    side_max,
+                )
+            }
+            None => (pio_core::SideSet::default(), 0),
+        };
+        let delay_max = (1u8 << (5 - side_set.bits())) - 1;
+
+        let count = program.instr.len();
+        if count == 0 {
+            return Err(Error::EmptyProgram);
+        }
+        if count > PROGRAM_SIZE {
+            return Err(Error::ProgramTooLong {
+                count,
+                max: PROGRAM_SIZE,
+            });
+        }
+
+        let mut code = Vec::with_capacity(count);
+        let mut instructions = ArrayVec::new();
+        for entry in &program.instr {
+            match entry {
+                InstrOrWord::Instruction(i) => {
+                    let delay: i32 = i.delay.clone().map(Into::into).unwrap_or(0);
+                    if delay < 0 || delay > delay_max as i32 {
+                        return Err(Error::IntegerOverflow("delay value out of range"));
+                    }
+                    let side_set_value = match &i.side_set {
+                        Some(v) => {
+                            let side: i32 = v.clone().into();
+                            if side < 0 || side > side_max as i32 {
+                                return Err(Error::IntegerOverflow(
+                                    "side-set value is greater than the side-set size",
+                                ));
+                            }
+                            Some(side as u8)
+                        }
+                        None if side_set.bits() > 0 && !side_set.optional() => {
+                            // The encoding leaves no room for instructions
+                            // without a side-set value.
+                            return Err(Error::IntegerOverflow(
+                                "every instruction of the program requires a 'side' set",
+                            ));
+                        }
+                        None => None,
+                    };
+                    let instruction = pio_core::Instruction {
+                        operands: i.ops.clone().try_into()?,
+                        delay: delay as u8,
+                        side_set: side_set_value,
+                    };
+                    code.push(instruction.encode(side_set));
+                    instructions.push(instruction);
+                }
+                InstrOrWord::Word(v) => {
+                    let value: i32 = v.clone().into();
+                    let value = u16::try_from(value).map_err(|_| Error::IntegerOutOfRange)?;
+                    code.push(value);
+                }
+            }
+        }
+
+        // `Assembler::version` is the reference implementation to detect
+        // instructions which are only available on the RP2350.
+        let version = {
+            let mut a = pio_core::Assembler::<PROGRAM_SIZE>::new_with_side_set(side_set);
+            a.instructions = instructions;
+            a.version()
+        };
+
+        let origin = match &program.origin {
+            Some((origin, _)) => {
+                let origin: i32 = origin.clone().into();
+                if origin < 0 || origin > 31 {
+                    return Err(Error::IntegerOverflow("origin must be in [0; 31]"));
+                }
+                Some(origin as u8)
+            }
+            None => None,
+        };
+
+        let wrap = match (program.wrap, program.wrap_target) {
+            (Some((source, _)), Some((target, _))) => pio_core::Wrap {
+                source: (source - 1) as u8,
+                target: target as u8,
+            },
+            (None, None) => pio_core::Wrap {
+                source: (count - 1) as u8,
+                target: 0,
+            },
+            (Some((_, location)), None) => return Err(Error::WrapWithoutWrapTarget(location)),
+            (None, Some((_, location))) => return Err(Error::WrapTargetWithoutWrap(location)),
+        };
+
+        Ok(pio_core::Program {
+            code: code.into_iter().collect(),
+            origin,
+            side_set,
+            wrap,
+            version,
         })
     }
 }
@@ -532,5 +739,176 @@ nop
             .into_iter()
             .collect()
         );
+    }
+}
+
+#[cfg(test)]
+mod assemble_tests {
+    use super::Error;
+    use crate::pipeline::Error as PipelineError;
+
+    const NOP: u16 = 0b101_00000_010_00010; // mov y, y
+
+    fn assemble<const PROGRAM_SIZE: usize>(
+        src: &str,
+    ) -> Result<super::File<'_, super::AssembledProgram<'_, PROGRAM_SIZE>>, PipelineError<'_>> {
+        crate::pipeline::compile_and_assemble(src)
+    }
+
+    #[test]
+    fn assembles_a_simple_program() {
+        let file = assemble::<32>(
+            r".program test
+nop
+nop",
+        )
+        .expect("failed to assemble");
+        let program = &file.programs["test"].program.program;
+        assert_eq!(&*program.code, &[NOP, NOP]);
+        // Default wrap covers the whole program.
+        assert_eq!(program.wrap.source, 1);
+        assert_eq!(program.wrap.target, 0);
+        assert_eq!(program.origin, None);
+    }
+
+    #[test]
+    fn assembles_origin_and_wrap() {
+        let file = assemble::<32>(
+            r".program test
+.origin 4
+.wrap_target
+nop
+nop
+.wrap",
+        )
+        .expect("failed to assemble");
+        let program = &file.programs["test"].program.program;
+        assert_eq!(program.origin, Some(4));
+        assert_eq!(program.wrap.source, 1);
+        assert_eq!(program.wrap.target, 0);
+    }
+
+    #[test]
+    fn wrap_without_target_is_an_error() {
+        let err = assemble::<32>(
+            r".program test
+nop
+.wrap",
+        )
+        .err()
+        .expect("expected an error");
+        assert!(matches!(
+            err,
+            PipelineError::Compiler(Error::WrapWithoutWrapTarget(_))
+        ));
+    }
+
+    #[test]
+    fn wrap_target_without_wrap_is_an_error() {
+        let err = assemble::<32>(
+            r".program test
+.wrap_target
+nop",
+        )
+        .err()
+        .expect("expected an error");
+        assert!(matches!(
+            err,
+            PipelineError::Compiler(Error::WrapTargetWithoutWrap(_))
+        ));
+    }
+
+    #[test]
+    fn empty_program_is_an_error() {
+        let err = assemble::<32>(r".program test").err();
+        assert!(matches!(
+            err,
+            Some(PipelineError::Compiler(Error::EmptyProgram))
+        ));
+    }
+
+    #[test]
+    fn program_over_max_size_is_an_error() {
+        let mut src = String::from(".program test\n");
+        for _ in 0..33 {
+            src.push_str("nop\n");
+        }
+        let err = assemble::<32>(&src).err();
+        assert!(matches!(
+            err,
+            Some(PipelineError::Compiler(Error::ProgramTooLong {
+                count: 33,
+                max: 32,
+            }))
+        ));
+    }
+
+    #[test]
+    fn word_occupies_an_instruction_slot() {
+        let file = assemble::<32>(
+            r".program test
+.word 0xabcd
+nop",
+        )
+        .expect("failed to assemble");
+        let program = &file.programs["test"].program.program;
+        assert_eq!(&*program.code, &[0xabcd, NOP]);
+    }
+
+    #[test]
+    fn word_out_of_range_is_an_error() {
+        let err = assemble::<32>(
+            r".program test
+.word 0x10000",
+        )
+        .err();
+        assert!(matches!(
+            err,
+            Some(PipelineError::Compiler(Error::IntegerOutOfRange))
+        ));
+    }
+
+    #[test]
+    fn side_set_values_are_encoded() {
+        let file = assemble::<32>(
+            r".program test
+.side_set 1 opt
+nop side 1 [2]",
+        )
+        .expect("failed to assemble");
+        let program = &file.programs["test"].program.program;
+        assert!(program.side_set.optional());
+        assert_eq!(program.side_set.bits(), 2);
+        assert!(!program.side_set.pindirs());
+        // side=1 (1-bit) shifted into the side field with the opt flag, plus
+        // delay=2:  (delay=2) | (side_present=1)<<4 | (side=1)<<(5-2) = 0b11010.
+        assert_eq!(&*program.code, &[NOP | (0b11010u16 << 8)]);
+    }
+
+    #[test]
+    fn missing_side_set_when_required_is_an_error() {
+        let err = assemble::<32>(
+            r".program test
+.side_set 1
+nop",
+        )
+        .err();
+        assert!(matches!(
+            err,
+            Some(PipelineError::Compiler(Error::IntegerOverflow(_)))
+        ));
+    }
+
+    #[test]
+    fn delay_too_large_is_an_error() {
+        let err = assemble::<32>(
+            r".program test
+nop [32]",
+        )
+        .err();
+        assert!(matches!(
+            err,
+            Some(PipelineError::Compiler(Error::IntegerOverflow(_)))
+        ));
     }
 }

@@ -20,7 +20,7 @@ pub mod lexer;
 pub mod parser;
 
 pub use ast::*;
-pub use compiler::{CodeBlock, Compiler, File, ParsedProgram, SideSet, SymbolId};
+pub use compiler::{AssembledProgram, CodeBlock, Compiler, File, ParsedProgram, SideSet, SymbolId};
 
 /// Error which may occur while processing a PIO asm source file.
 #[derive(thiserror::Error, Debug, PartialEq)]
@@ -54,4 +54,11 @@ pub fn parse(input: &str) -> Result<impl Iterator<Item = Line<'_>>, parser::Erro
 /// Compiles the input and returns a [`File`] representation.
 pub fn compile(input: &str) -> Result<File<'_, ParsedProgram<'_>>, Error<'_>> {
     Ok(Compiler::compile(parse(input)?)?)
+}
+
+/// Compiles and assembles the input into machine code.
+pub fn compile_and_assemble<const PROGRAM_SIZE: usize>(
+    input: &str,
+) -> Result<File<'_, AssembledProgram<'_, PROGRAM_SIZE>>, Error<'_>> {
+    Ok(Compiler::assemble(compile(input)?)?)
 }

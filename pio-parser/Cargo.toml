@@ -11,6 +11,7 @@ repository = "https://github.com/rp-rs/pio-rs"
 [dependencies]
 lalrpop-util = { version = "0.23.2", default-features = false, features = ["lexer", "unicode"] }
 pio-core = { path = "../pio-core", version = "0.4.0" }
+arrayvec = { version = "0.7", default-features = false }
 logos = "0.16"
 thiserror = "2"
 itertools = "0.15"
