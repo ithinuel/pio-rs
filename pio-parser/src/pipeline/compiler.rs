@@ -941,7 +941,7 @@ nop [32]",
         // Each of these constructs is only available on the RP2350.
         for src in [
             "wait 1 jmppin",
-            "wait 1 jmppin + 8",
+            "wait 1 jmppin + 2",
             "mov rxfifo[y], isr",
             "mov osr, rxfifo[0]",
             "mov pindirs, x",
@@ -990,6 +990,23 @@ nop",
             assert!(
                 matches!(err, Some(PipelineError::Compiler(Error::InvalidMovFifo))),
                 "`{src}` should be rejected, got: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn jmppin_offset_out_of_range_is_rejected() {
+        // The RP2350 datasheet (Section 11.4.3) only defines jmppin offsets
+        // 0-3; everything else is a reserved encoding.
+        for offset in ["4", "31", "(0-1)"] {
+            let full = format!(".program test\nwait 1 jmppin + {offset}\n");
+            let err = assemble::<32>(&full).err();
+            assert!(
+                matches!(
+                    err,
+                    Some(PipelineError::Compiler(Error::IntegerOverflow(_)))
+                ),
+                "`wait 1 jmppin + {offset}` should be rejected, got: {err:?}"
             );
         }
     }

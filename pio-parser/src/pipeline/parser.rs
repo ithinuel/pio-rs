@@ -435,9 +435,12 @@ Yes indeed.
             ("wait 1 irq rel 2", Rel),
             ("wait 1 irq next 2", Next),
             ("wait 1 irq 2 rel", Rel),
-            // A trailing `rel` overrides the index mode.
+            ("wait 1 irq 2 prev", Prev),
+            ("wait 1 irq 2 next", Next),
+            // A trailing index mode overrides the prefixed one.
             ("wait 1 irq prev 2 rel", Rel),
             ("wait 1 irq next 2 rel", Rel),
+            ("wait 1 irq prev 2 next", Next),
         ]
         .into_iter()
         .map(|(input, index_mode)| (input.to_string(), wait(2, index_mode)))

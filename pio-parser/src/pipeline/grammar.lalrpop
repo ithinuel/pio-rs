@@ -128,7 +128,10 @@ SideSet: Value<'i> = side <Value>;
 Delay: Expression<'i> = lbracket <Expression> rbracket;
 
 WaitSource: WaitSource<'i> = {
-    irq comma? <m:IrqIndexModeKw?> <v:Value> comma? <r:rel?> => WaitSource::Irq(v, if r.is_some() { IrqIndexMode::Rel } else { m.unwrap_or(IrqIndexMode::Direct) }),
+    // The datasheet syntax is `wait <polarity> irq <irq_num> (rel, next,
+    // prev)`; the index mode is also accepted before the number, and a
+    // trailing mode then overrides the prefixed one.
+    irq comma? <m:IrqIndexModeKw?> <v:Value> comma? <r:IrqIndexModeKw?> => WaitSource::Irq(v, r.or(m).unwrap_or(IrqIndexMode::Direct)),
     gpio comma? <Value> => WaitSource::Gpio(<>),
     pin comma? <Value> => WaitSource::Pin(<>),
     jmppin comma? <offset:(plus <Value>)?> => WaitSource::JmpPin(<>),

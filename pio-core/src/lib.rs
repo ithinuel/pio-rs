@@ -167,9 +167,16 @@ impl TryFrom<(u8, u8)> for WaitSource {
                 index_mode: IrqIndexMode::try_from_primitive((o1 >> 3) & 0b11).unwrap(),
                 irq: o1 & 0b111,
             }),
-            0b11 => Ok(WaitSource::JmpPin {
-                offset: Some(o1 & 0b11111),
-            }),
+            0b11 => {
+                let offset = o1 & 0b11111;
+                // Offsets greater than 3 are reserved encodings.
+                if offset > 3 {
+                    return Err(());
+                }
+                Ok(WaitSource::JmpPin {
+                    offset: Some(offset),
+                })
+            }
             _ => Err(()),
         }
     }
@@ -256,8 +263,16 @@ impl InstructionOperands {
                         }
                         (*index_mode as u8) << 3 | *irq & 0b111
                     }
+                    // The pin is the jmp pin plus the offset; other offsets
+                    // are reserved encodings per the RP2350 datasheet
+                    // (Section 11.4.3).
                     WaitSource::JmpPin { offset } => match offset {
-                        Some(offset) => *offset,
+                        Some(offset) => {
+                            if *offset > 3 {
+                                panic!("Offset for WaitSource::JmpPin should be in range 0..=3");
+                            }
+                            *offset
+                        }
                         None => 0,
                     },
                 };
@@ -1182,10 +1197,10 @@ instr_test!(
     0b001_00000_011_00000,
     PioVersion::V1
 );
-// RP235x only: wait 1 jmppin + 17
+// RP235x only: wait 1 jmppin + 3
 instr_test!(
-    wait(1, WaitSource::JmpPin { offset: Some(17) }),
-    0b001_00000_111_10001,
+    wait(1, WaitSource::JmpPin { offset: Some(3) }),
+    0b001_00000_111_00011,
     PioVersion::V1
 );
 // RP235x only: wait 1 jmppin + 2 [30]
@@ -1252,6 +1267,14 @@ fn test_out_bit_width_zero_should_panic() {
 fn test_out_bit_width_exceeds_max_should_panic() {
     let mut a = Assembler::<32>::new();
     a.out(OutDestination::X, 33);
+    a.assemble_program();
+}
+
+#[test]
+#[should_panic(expected = "Offset for WaitSource::JmpPin should be in range 0..=3")]
+fn test_wait_jmppin_offset_exceeds_max_should_panic() {
+    let mut a = Assembler::<32>::new();
+    a.wait(1, WaitSource::JmpPin { offset: Some(4) });
     a.assemble_program();
 }
 

@@ -42,6 +42,13 @@ major version of `pio-parser` (and `pio`/`pio-proc` to depend on it).
 - (Breaking) Some inputs previously accepted are rejected: `.program`
   directives in single-program input (`pio_asm!`), `.lang_opt` outside a
   program, and empty programs.
+- (Breaking) `pio-core` & `pio-parser`: `wait` jmppin offsets are limited to
+  0-3 as defined by the RP2350 datasheet (Section 11.4.3); larger offsets are
+  a compile error (and a panic when assembling through `pio_core`), and
+  instructions carrying a reserved offset are no longer decoded.
+- `pio-parser`: the datasheet suffix form `wait <polarity> irq <irq_num>
+  prev|next` now parses; as was already the case for `rel`, a trailing index
+  mode overrides a prefixed one.
 
 ### Removed
 

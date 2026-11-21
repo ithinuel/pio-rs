@@ -6,7 +6,7 @@
     wait 1 irq next 3
     wait 1 irq rel 4
     wait 1 jmppin
-    wait 1 jmppin + 8 [4]
+    wait 1 jmppin + 3 [4]
     mov rxfifo[y], isr
     mov rxfifo[0], isr
     mov osr, rxfifo[1]

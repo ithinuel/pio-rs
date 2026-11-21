@@ -369,10 +369,12 @@ impl<'i> TryFrom<InstructionOperands<'i>> for ir::InstructionOperands {
                     WaitSource::JmpPin(offset) => ir::WaitSource::JmpPin {
                         offset: match offset {
                             Some(offset) => match offset.into() {
-                                o @ 0..=31 => Some(o as u8),
+                                // The RP2350 datasheet (Section 11.4.3)
+                                // reserves all jmppin offsets beyond 3.
+                                o @ 0..=3 => Some(o as u8),
                                 _ => {
                                     return Err(Error::IntegerOverflow(
-                                        "jmppin offset must be in [0; 31].",
+                                        "jmppin offset must be in [0; 3].",
                                     ))
                                 }
                             },
