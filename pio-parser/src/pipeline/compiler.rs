@@ -54,6 +54,24 @@ pub enum Error<'i> {
     #[error("Program contains {count} instructions but at most {max} are allowed")]
     ProgramTooLong { count: usize, max: usize },
 }
+impl<'i> Error<'i> {
+    /// Returns the byte range of the input the error refers to, when known.
+    pub fn span(&self) -> Option<std::ops::Range<usize>> {
+        let location = match self {
+            Error::ProgramAlreadyExists(location) => location,
+            Error::InvalidOutsideOfProgram { location, .. } => location,
+            Error::WrapAlreadySet(location) => location,
+            Error::WrapBeforeFirstInstr(location) => location,
+            Error::WrapTargetAlreadySet(location) => location,
+            Error::MustAppearBeforeAnyInstr { location, .. } => location,
+            Error::AlreadyDefined { location, .. } => location,
+            Error::WrapWithoutWrapTarget(location) => location,
+            Error::WrapTargetWithoutWrap(location) => location,
+            _ => return None,
+        };
+        Some(location.0.clone())
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct SymbolId<'i> {
