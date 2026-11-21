@@ -137,6 +137,8 @@ pub enum Token<'i> {
     And,
     #[token("^")]
     Xor,
+    #[token("<")]
+    LessThan,
     #[token("!=")]
     NotEqual,
     #[token("!")]
@@ -159,6 +161,21 @@ pub enum Token<'i> {
     Origin,
     #[token(".lang_opt", ignore(case))]
     LangOpt,
+    // Directives exclusive to the RP2350.
+    #[token(".pio_version", ignore(case))]
+    PioVersion,
+    #[token(".clock_div", ignore(case))]
+    ClockDiv,
+    #[token(".fifo", ignore(case))]
+    Fifo,
+    #[token(".mov_status", ignore(case))]
+    MovStatus,
+    #[token(".in", ignore(case))]
+    DotIn,
+    #[token(".out", ignore(case))]
+    DotOut,
+    #[token(".set", ignore(case))]
+    DotSet,
     #[regex(r"\.(?&id)")]
     UnknownDirective,
 
@@ -217,6 +234,38 @@ pub enum Token<'i> {
     #[token("RXFIFO[3]", ignore(case))]
     RxFifo3,
 
+    // Keywords for the RP2350 directives. `RXFIFO` is only used by
+    // `.mov_status`; the `RXFIFO[..]` mov operands match longer and win
+    // where both could apply.
+    #[token("RXFIFO", ignore(case))]
+    RxFifo,
+    #[token("TXFIFO", ignore(case))]
+    TxFifo,
+    #[token("TXRX", ignore(case))]
+    Txrx,
+    #[token("TX", ignore(case))]
+    Tx,
+    #[token("RX", ignore(case))]
+    Rx,
+    #[token("TXPUT", ignore(case))]
+    Txput,
+    #[token("TXGET", ignore(case))]
+    Txget,
+    #[token("PUTGET", ignore(case))]
+    Putget,
+    #[token("LEFT", ignore(case))]
+    Left,
+    #[token("RIGHT", ignore(case))]
+    Right,
+    #[token("AUTO", ignore(case))]
+    Auto,
+    #[token("MANUAL", ignore(case))]
+    Manual,
+    #[token("RP2040", ignore(case))]
+    Rp2040,
+    #[token("RP2350", ignore(case))]
+    Rp2350,
+
     #[token("PINS", ignore(case))]
     Pins,
     #[token("NULL", ignore(case))]
@@ -260,6 +309,10 @@ pub enum Token<'i> {
     #[token("ONE", parse_one, ignore(case))]
     #[token("ZERO", parse_zero, ignore(case))]
     Int(i32),
+
+    // Decimal notation, only accepted by `.clock_div`.
+    #[regex("[0-9]*\\.[0-9]+")]
+    Float(&'i str),
 
     #[regex("(?&id)", priority = 1)]
     Id(&'i str),
@@ -433,6 +486,57 @@ mod test {
                 Ok((33, Colon, 34)),
                 Ok((35, Nop, 38)),
                 Ok((38, EndOfFile, 38))
+            ]
+        );
+    }
+
+    #[test]
+    fn rp2350_directives() {
+        let l: Vec<_> =
+            Lexer::new(".fifo putget\n.in 4 left auto 8\n.clock_div 1.5\n.mov_status irq set 2")
+                .collect();
+        assert_eq!(
+            &l,
+            &[
+                Ok((0, Fifo, 5)),
+                Ok((6, Putget, 12)),
+                Ok((12, NewLine, 13)),
+                Ok((13, DotIn, 16)),
+                Ok((17, Int(4), 18)),
+                Ok((19, Left, 23)),
+                Ok((24, Auto, 28)),
+                Ok((29, Int(8), 30)),
+                Ok((30, NewLine, 31)),
+                Ok((31, ClockDiv, 41)),
+                Ok((42, Float("1.5"), 45)),
+                Ok((45, NewLine, 46)),
+                Ok((46, MovStatus, 57)),
+                Ok((58, Irq, 61)),
+                Ok((62, Set, 65)),
+                Ok((66, Int(2), 67)),
+                Ok((67, EndOfFile, 67)),
+            ]
+        );
+    }
+
+    #[test]
+    fn rxfifo_operand_and_keyword() {
+        // The `rxfifo[..]` mov operand wins over the bare `rxfifo` keyword
+        // used by `.mov_status`.
+        let l: Vec<_> = Lexer::new("mov osr, rxfifo[y]\n.mov_status rxfifo < 1").collect();
+        assert_eq!(
+            &l,
+            &[
+                Ok((0, Mov, 3)),
+                Ok((4, Osr, 7)),
+                Ok((7, Comma, 8)),
+                Ok((9, RxFifoY, 18)),
+                Ok((18, NewLine, 19)),
+                Ok((19, MovStatus, 30)),
+                Ok((31, RxFifo, 37)),
+                Ok((38, LessThan, 39)),
+                Ok((40, Int(1), 41)),
+                Ok((41, EndOfFile, 41)),
             ]
         );
     }

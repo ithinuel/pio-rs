@@ -19,7 +19,9 @@ pub mod lexer;
 pub mod parser;
 
 pub use ast::*;
-pub use compiler::{AssembledProgram, CodeBlock, Compiler, File, ParsedProgram, SideSet, SymbolId};
+pub use compiler::{
+    AssembledProgram, CodeBlock, Compiler, File, ParsedProgram, ShiftConfig, SideSet, SymbolId,
+};
 
 /// Error which may occur while processing a PIO asm source file.
 #[derive(thiserror::Error, Debug, PartialEq)]

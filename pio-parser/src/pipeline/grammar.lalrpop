@@ -20,6 +20,11 @@ use crate::pipeline::{
   IrqModifier,
   JmpCondition,
   InstructionOperands,
+  ClockDiv,
+  FifoConfig,
+  MovStatus,
+  MovStatusIrqSource,
+  ShiftDirection,
   lexer::{self, Token}
 };
 
@@ -64,7 +69,69 @@ Directive: Directive<'i> = {
     <l:@L> word <r:@R> <v:Value> => Directive::Word(Location(l..r), v),
     <l:@L> lang_opt <r:@R> <lang:non_ws> <var:non_ws> equal <val:non_ws> => Directive::LangOpt{ location: Location(l..r), lang, var, val },
     <l:@L> lang_opt <r:@R> <lang:non_ws> <var:non_ws> equal <val:string> => Directive::LangOpt{ location: Location(l..r), lang, var, val },
-    <l:@L> lang_opt <r:@R> <lang:non_ws> <var:non_ws> equal <val:langopt_int> => Directive::LangOpt{ location: Location(l..r), lang, var, val }
+    <l:@L> lang_opt <r:@R> <lang:non_ws> <var:non_ws> equal <val:langopt_int> => Directive::LangOpt{ location: Location(l..r), lang, var, val },
+    // Directives exclusive to the RP2350.
+    <l:@L> pio_version <r:@R> <v:PioVersionValue> => Directive::PioVersion(Location(l..r), v),
+    <l:@L> clock_div <r:@R> <v:ClockDivValue> => Directive::ClockDiv(Location(l..r), v),
+    <l:@L> fifo <r:@R> <config:FifoConfig> => Directive::Fifo(Location(l..r), config),
+    <l:@L> mov_status <r:@R> <source:MovStatusSource> => Directive::MovStatus(Location(l..r), source),
+    <l:@L> dot_in <r:@R> <count:Value> <direction:ShiftDirection?> <auto:AutoMode?> <threshold:Value?> => Directive::In {
+        location: Location(l..r),
+        count,
+        direction: direction.unwrap_or(ShiftDirection::Right),
+        auto: auto.unwrap_or(false),
+        threshold: threshold.unwrap_or(Value::Integer(32)),
+    },
+    <l:@L> dot_out <r:@R> <count:Value> <direction:ShiftDirection?> <auto:AutoMode?> <threshold:Value?> => Directive::Out {
+        location: Location(l..r),
+        count,
+        direction: direction.unwrap_or(ShiftDirection::Right),
+        auto: auto.unwrap_or(false),
+        threshold: threshold.unwrap_or(Value::Integer(32)),
+    },
+    <l:@L> dot_set <r:@R> <v:Value> => Directive::SetCount(Location(l..r), v),
+}
+
+PioVersionValue: i32 = {
+    Int,
+    rp2040 => 0,
+    rp2350 => 1,
+}
+
+ClockDivValue: ClockDiv = {
+    Int => ClockDiv { integer: <> as u32, fractional: 0 },
+    Float => ClockDiv::from_decimal(<>),
+}
+
+FifoConfig: FifoConfig = {
+    txrx => FifoConfig::Txrx,
+    tx => FifoConfig::Tx,
+    rx => FifoConfig::Rx,
+    txput => FifoConfig::Txput,
+    txget => FifoConfig::Txget,
+    putget => FifoConfig::Putget,
+}
+
+MovStatusSource: MovStatus<'i> = {
+    txfifo less <Value> => MovStatus::TxFifoBelow(<>),
+    rxfifo less <Value> => MovStatus::RxFifoBelow(<>),
+    // `prev` and `next` select a neighbouring PIO block.
+    irq <source:MovStatusIrqSource?> set <index:Value> => MovStatus::IrqSet { index, source: source.unwrap_or(MovStatusIrqSource::This) },
+}
+
+MovStatusIrqSource: MovStatusIrqSource = {
+    prev => MovStatusIrqSource::Prev,
+    next => MovStatusIrqSource::Next,
+}
+
+ShiftDirection: ShiftDirection = {
+    left => ShiftDirection::Left,
+    right => ShiftDirection::Right,
+}
+
+AutoMode: bool = {
+    auto => true,
+    manual => false,
 }
 
 Value: Value<'i> = {
@@ -259,6 +326,13 @@ extern {
         define => Token::Define,
         word => Token::Word,
         lang_opt => Token::LangOpt,
+        pio_version => Token::PioVersion,
+        clock_div => Token::ClockDiv,
+        fifo => Token::Fifo,
+        mov_status => Token::MovStatus,
+        dot_in => Token::DotIn,
+        dot_out => Token::DotOut,
+        dot_set => Token::DotSet,
 
         // instructions
         nop => Token::Nop,
@@ -304,6 +378,22 @@ extern {
         rxfifo_3 => Token::RxFifo3,
         opt => Token::Optional,
 
+        // operands of the RP2350 directives
+        rxfifo => Token::RxFifo,
+        txfifo => Token::TxFifo,
+        txrx => Token::Txrx,
+        tx => Token::Tx,
+        rx => Token::Rx,
+        txput => Token::Txput,
+        txget => Token::Txget,
+        putget => Token::Putget,
+        left => Token::Left,
+        right => Token::Right,
+        auto => Token::Auto,
+        manual => Token::Manual,
+        rp2040 => Token::Rp2040,
+        rp2350 => Token::Rp2350,
+
         // operators
         neq => Token::NotEqual,
         dec => Token::Decrement,
@@ -315,6 +405,7 @@ extern {
         rbracket => Token::RBracket,
         colon => Token::Colon,
         comma => Token::Comma,
+        less => Token::LessThan,
 
         // expression
         "(" => Token::LParen,
@@ -327,5 +418,6 @@ extern {
         or => Token::Or,
         xor => Token::Xor,
         Int => Token::Int(<i32>),
+        Float => Token::Float(<&'i str>),
     }
 }

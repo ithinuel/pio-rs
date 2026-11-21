@@ -1,7 +1,14 @@
 ; Instruction forms exclusive to the RP2350 (PIO version V1), used by
 ; `tests/pipeline_golden.rs` to check the instruction encodings and the
-; detected pio version.
-.program rp2350
+; detected pio version. The directives exercise the RP2350-only syntax.
+.program v1_features
+.pio_version rp2350
+.clock_div 1.5
+.fifo putget
+.mov_status irq next set 2
+.in 8 left auto
+.out 8 right manual 16
+.set 3
     wait 0 irq prev 2
     wait 1 irq next 3
     wait 1 irq rel 4

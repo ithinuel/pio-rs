@@ -28,6 +28,13 @@ major version of `pio-parser` (and `pio`/`pio-proc` to depend on it).
   diagnostics.
 - `pio_file!`/`pio_asm!`: macro diagnostics now point at the offending
   source span for compile and assemble errors too, not just parse errors.
+- `pio-parser`: the RP2350-only directives `.pio_version`, `.clock_div`,
+  `.fifo`, `.mov_status`, `.in`, `.out` and `.set` are supported. They are
+  validated when assembling (placement, target version and the value ranges
+  pioasm enforces) and exposed as data on
+  `pio_parser::pipeline::ParsedProgram`. A `.pio_version` written before the
+  first program sets the default target for the whole file; without one
+  programs target the latest version, like pioasm.
 
 ### Changed
 
@@ -49,6 +56,10 @@ major version of `pio-parser` (and `pio`/`pio-proc` to depend on it).
 - `pio-parser`: the datasheet suffix form `wait <polarity> irq <irq_num>
   prev|next` now parses; as was already the case for `rel`, a trailing index
   mode overrides a prefixed one.
+- (Breaking) `pio-parser`: the words `rxfifo`, `txfifo`, `txrx`, `tx`, `rx`,
+  `txput`, `txget`, `putget`, `left`, `right`, `auto`, `manual`, `rp2040`
+  and `rp2350` are keywords for the new directives and can no longer be used
+  as program, label or define names; pioasm reserves the same words.
 
 ### Removed
 

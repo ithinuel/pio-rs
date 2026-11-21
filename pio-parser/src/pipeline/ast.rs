@@ -58,6 +58,111 @@ pub enum Directive<'i> {
         var: &'i str,
         val: &'i str,
     },
+    /// `.pio_version <version>` (RP2350).
+    ///
+    /// `0`/`RP2040` selects `0` and `1`/`RP2350` selects `1`; the compiler
+    /// rejects any other version.
+    PioVersion(Location, i32),
+    /// `.clock_div <divider>` (RP2350).
+    ClockDiv(Location, ClockDiv),
+    /// `.fifo <config>` (RP2350).
+    Fifo(Location, FifoConfig),
+    /// `.mov_status <source>` (RP2350).
+    MovStatus(Location, MovStatus<'i>),
+    /// `.in <count> (left|right) (auto|manual) (<threshold>)` (RP2350).
+    In {
+        location: Location,
+        count: Value<'i>,
+        direction: ShiftDirection,
+        auto: bool,
+        threshold: Value<'i>,
+    },
+    /// `.out <count> (left|right) (auto|manual) (<threshold>)` (RP2350).
+    Out {
+        location: Location,
+        count: Value<'i>,
+        direction: ShiftDirection,
+        auto: bool,
+        threshold: Value<'i>,
+    },
+    /// `.set <count>` (RP2350).
+    SetCount(Location, Value<'i>),
+}
+
+/// Clock divider written with the `.clock_div` directive (RP2350).
+///
+/// The hardware divider is a 16.8 fixed-point number; the fractional part
+/// of the decimal notation is truncated to 8 bits like pioasm does.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct ClockDiv {
+    pub integer: u32,
+    pub fractional: u32,
+}
+impl ClockDiv {
+    /// Parses the decimal notation accepted by `.clock_div` (e.g. `1.5`,
+    /// `.25`). The regular expression of the token guarantees the input
+    /// parses.
+    pub(crate) fn from_decimal(s: &str) -> Self {
+        let value: f64 = s.parse().unwrap_or(f64::INFINITY);
+        Self {
+            integer: value.trunc() as u32,
+            fractional: (value.fract() * 256.0) as u32,
+        }
+    }
+}
+
+/// FIFO configuration written with the `.fifo` directive (RP2350).
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum FifoConfig {
+    /// 4 FIFO entries for each of TX and RX. The default.
+    Txrx,
+    /// All 8 FIFO entries for TX.
+    Tx,
+    /// All 8 FIFO entries for RX.
+    Rx,
+    /// 4 entries for TX and 4 entries for `mov rxfifo[index], isr`.
+    /// Requires PIO version 1.
+    Txput,
+    /// 4 entries for TX and 4 entries for `mov osr, rxfifo[index]`.
+    /// Requires PIO version 1.
+    Txget,
+    /// 4 entries for `mov rxfifo[index], isr` and 4 for
+    /// `mov osr, rxfifo[index]`. Requires PIO version 1.
+    Putget,
+}
+
+/// Shift direction configured with the `.in` and `.out` directives (RP2350).
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ShiftDirection {
+    Left,
+    Right,
+}
+
+/// Source for `mov status` configured with the `.mov_status` directive
+/// (RP2350).
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum MovStatus<'i> {
+    /// `mov, status` tests whether the TX FIFO level is below `n`.
+    TxFifoBelow(Value<'i>),
+    /// `mov, status` tests whether the RX FIFO level is below `n`.
+    RxFifoBelow(Value<'i>),
+    /// `mov, status` tests whether the IRQ flag `index` of a PIO block is
+    /// set. Requires PIO version 1.
+    IrqSet {
+        index: Value<'i>,
+        source: MovStatusIrqSource,
+    },
+}
+
+/// PIO block the `.mov_status irq` flag is read from (RP2350).
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum MovStatusIrqSource {
+    /// This PIO instance.
+    This,
+    /// The next lower-numbered PIO, wrapping to the highest-numbered one.
+    Prev,
+    /// The next higher-numbered PIO, wrapping to PIO0.
+    Next,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

@@ -128,7 +128,7 @@ fn case_test_golden() {
     assert_eq!(snapshots["variable_case_side_ref"], side);
 }
 
-// Exercises RP2350-only instructions.
+// Exercises RP2350-only instructions and directives.
 #[test]
 fn rp2350_golden() {
     let snapshots = snapshots(&fs::read_to_string("tests/rp2350.pio").unwrap());
@@ -144,5 +144,5 @@ fn rp2350_golden() {
         PioVersion::V1, // the program requires the RP2350
         &[],
     );
-    assert_eq!(snapshots["rp2350"], expect);
+    assert_eq!(snapshots["v1_features"], expect);
 }

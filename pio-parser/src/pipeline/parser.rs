@@ -47,6 +47,202 @@ mod tests {
     }
 
     #[test]
+    fn parse_fifo_directive() {
+        use crate::pipeline::{Directive, FifoConfig};
+        let test_set = [
+            (".fifo txrx", FifoConfig::Txrx),
+            (".fifo tx", FifoConfig::Tx),
+            (".fifo rx", FifoConfig::Rx),
+            (".fifo TXPUT", FifoConfig::Txput),
+            (".Fifo TxGet", FifoConfig::Txget),
+            (".fifo putget", FifoConfig::Putget),
+        ];
+        assert(
+            &test_set
+                .into_iter()
+                .map(|(src, config)| {
+                    (
+                        src,
+                        Line::Directive(Directive::Fifo(Location(0..5), config)),
+                    )
+                })
+                .collect_vec(),
+        );
+    }
+
+    #[test]
+    fn parse_pio_version_directive() {
+        use crate::pipeline::Directive;
+        let test_set = [
+            (".pio_version 0", 0),
+            (".pio_version 1", 1),
+            (".PIO_VERSION RP2040", 0),
+            (".pio_version rp2350", 1),
+        ];
+        assert(
+            &test_set
+                .into_iter()
+                .map(|(src, version)| {
+                    (
+                        src,
+                        Line::Directive(Directive::PioVersion(Location(0..12), version)),
+                    )
+                })
+                .collect_vec(),
+        );
+    }
+
+    #[test]
+    fn parse_clock_div_directive() {
+        use crate::pipeline::{ClockDiv, Directive};
+        let test_set = [
+            (
+                ".clock_div 1",
+                ClockDiv {
+                    integer: 1,
+                    fractional: 0,
+                },
+            ),
+            (
+                ".clock_div 1.5",
+                ClockDiv {
+                    integer: 1,
+                    fractional: 128,
+                },
+            ),
+            (
+                ".clock_div .5",
+                ClockDiv {
+                    integer: 0,
+                    fractional: 128,
+                },
+            ),
+            // The fractional part is truncated to 8 bits.
+            (
+                ".clock_div 10.003",
+                ClockDiv {
+                    integer: 10,
+                    fractional: 0,
+                },
+            ),
+        ];
+        assert(
+            &test_set
+                .into_iter()
+                .map(|(src, clock_div)| {
+                    (
+                        src,
+                        Line::Directive(Directive::ClockDiv(Location(0..10), clock_div)),
+                    )
+                })
+                .collect_vec(),
+        );
+    }
+
+    #[test]
+    fn parse_mov_status_directive() {
+        use crate::pipeline::Value::Integer;
+        use crate::pipeline::{Directive, MovStatus, MovStatusIrqSource as Source};
+        let test_set = [
+            (".mov_status txfifo < 4", MovStatus::TxFifoBelow(Integer(4))),
+            (".mov_status RXFIFO<0", MovStatus::RxFifoBelow(Integer(0))),
+            (
+                ".mov_status irq set 3",
+                MovStatus::IrqSet {
+                    index: Integer(3),
+                    source: Source::This,
+                },
+            ),
+            (
+                ".mov_status irq prev set 4",
+                MovStatus::IrqSet {
+                    index: Integer(4),
+                    source: Source::Prev,
+                },
+            ),
+            (
+                ".mov_status irq NEXT set 5",
+                MovStatus::IrqSet {
+                    index: Integer(5),
+                    source: Source::Next,
+                },
+            ),
+        ];
+        assert(
+            &test_set
+                .into_iter()
+                .map(|(src, source)| {
+                    (
+                        src,
+                        Line::Directive(Directive::MovStatus(Location(0..11), source)),
+                    )
+                })
+                .collect_vec(),
+        );
+    }
+
+    #[test]
+    fn parse_in_out_set_directives() {
+        use crate::pipeline::{Directive, ShiftDirection::*, Value::Integer};
+        assert(&[
+            (
+                ".in 32",
+                Line::Directive(Directive::In {
+                    location: Location(0..3),
+                    count: Integer(32),
+                    direction: Right,
+                    auto: false,
+                    threshold: Integer(32),
+                }),
+            ),
+            (
+                ".in 4 left auto 8",
+                Line::Directive(Directive::In {
+                    location: Location(0..3),
+                    count: Integer(4),
+                    direction: Left,
+                    auto: true,
+                    threshold: Integer(8),
+                }),
+            ),
+            (
+                ".in 8 RIGHT MANUAL",
+                Line::Directive(Directive::In {
+                    location: Location(0..3),
+                    count: Integer(8),
+                    direction: Right,
+                    auto: false,
+                    threshold: Integer(32),
+                }),
+            ),
+            (
+                ".out 16 left",
+                Line::Directive(Directive::Out {
+                    location: Location(0..4),
+                    count: Integer(16),
+                    direction: Left,
+                    auto: false,
+                    threshold: Integer(32),
+                }),
+            ),
+            (
+                ".out 0 auto 1",
+                Line::Directive(Directive::Out {
+                    location: Location(0..4),
+                    count: Integer(0),
+                    direction: Right,
+                    auto: true,
+                    threshold: Integer(1),
+                }),
+            ),
+            (
+                ".set 3",
+                Line::Directive(Directive::SetCount(Location(0..4), Integer(3))),
+            ),
+        ]);
+    }
+
+    #[test]
     fn parse_label() {
         use crate::pipeline::SymbolDef;
         use std::collections::HashSet;
